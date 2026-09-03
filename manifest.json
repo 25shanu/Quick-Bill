@@ -3,7 +3,7 @@
   "name": "My GitHub Web App",
   "icons": [
     {
-      "src": "icon.png",
+      "src": "inside_logo.png",
       "type": "image/png",
       "sizes": "192x192"
     },
