@@ -8,9 +8,9 @@
       "sizes": "192x192"
     },
     {
-      "src": "icon-256.png",
+      "src": "icon-512.png",
       "type": "image/png",
-      "sizes": "256x256"
+      "sizes": "512x512"
     }
   ],
   "start_url": ".",
