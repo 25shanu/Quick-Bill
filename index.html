@@ -964,7 +964,10 @@ async function pullFromSheet(showStatus, retry){
       stock: Number(it.stock) || 0,
       favorite: !!it.favorite
     }));
-    locked = !!data.locked;
+    if(typeof data.locked === 'boolean') locked = data.locked;
+    // if the field is missing entirely (old Apps Script not yet redeployed
+    // with lock support), leave locked exactly as it was — never assume
+    // unlocked just because the sheet didn't say either way
     renderRates();
     renderFavStrip();
     renderBill();
@@ -1022,7 +1025,10 @@ document.getElementById('connectSheetBtn').addEventListener('click', async ()=>{
       stock: Number(it.stock) || 0,
       favorite: !!it.favorite
     }));
-    locked = !!data.locked;
+    if(typeof data.locked === 'boolean') locked = data.locked;
+    // if the field is missing entirely (old Apps Script not yet redeployed
+    // with lock support), leave locked exactly as it was — never assume
+    // unlocked just because the sheet didn't say either way
     renderRates();
     renderFavStrip();
     renderBill();
@@ -1058,7 +1064,10 @@ document.getElementById('lockedCheckAgainBtn').addEventListener('click', async (
   try{
     const response = await fetch(sheetUrl);
     const data = await response.json();
-    locked = !!data.locked;
+    if(typeof data.locked === 'boolean') locked = data.locked;
+    // if the field is missing entirely (old Apps Script not yet redeployed
+    // with lock support), leave locked exactly as it was — never assume
+    // unlocked just because the sheet didn't say either way
     if(!locked){
       applyLockState();
     } else {
@@ -1772,6 +1781,10 @@ async function resolveSheetUrlFromRegistry(){
   try{
     const response = await fetch(REGISTRY_ENDPOINT.replace(/\/?$/, '/') + 'shop?name=' + encodeURIComponent(shopName));
     const data = await response.json();
+    if(data.removed){
+      handleShopRemovedByAdmin();
+      return;
+    }
     const providedUrl = (data.sheetUrl || '').trim();
     if(providedUrl && providedUrl !== sheetUrl){
       sheetUrl = providedUrl;
@@ -1782,6 +1795,27 @@ async function resolveSheetUrlFromRegistry(){
   } catch(err){
     // stay quiet — falls back to whatever link is already connected
   }
+}
+
+// Called when the registry says this shop was deleted from the admin
+// dashboard. Logs the shopkeeper out and wipes everything connected to this
+// shop from this device — items, sheet link, and lock status — so nothing
+// stale is left behind if the same name is ever used again.
+function handleShopRemovedByAdmin(){
+  clearInterval(sheetPollTimer);
+  try{
+    localStorage.removeItem(shopKey(shopName));
+    localStorage.removeItem(CURRENT_SHOP_KEY);
+  } catch(err){}
+  shopName = '';
+  sheetUrl = '';
+  locked = false;
+  items = [];
+  document.getElementById('lockedOverlay').style.display = 'none';
+  document.getElementById('appRoot').style.display = 'none';
+  document.getElementById('loginOverlay').style.display = 'flex';
+  document.getElementById('shopNameInput').value = '';
+  document.getElementById('loginNote').textContent = 'This shop was removed by your service provider. Contact them, or start again with a shop name.';
 }
 
 async function readParchaImage(base64, mediaType){
