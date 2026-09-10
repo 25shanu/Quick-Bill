@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <link rel="manifest" href="manifest.json">
+<link rel="manifest" href="manifest.json">
 <script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js');
@@ -278,6 +278,11 @@
     border-radius:10px; margin-bottom:14px; text-align:center; transition:border-color 0.15s;
   }
   .login-card input:focus{outline:none; border-color:var(--accent);}
+  .login-card select{
+    width:100%; font-family:inherit; font-size:15px; padding:13px 14px; border:1.5px solid var(--line);
+    border-radius:10px; margin-bottom:10px; text-align:center; color:var(--muted); background:var(--paper2);
+  }
+  .login-card select:focus{outline:none; border-color:var(--accent);}
   .login-card button{width:100%; padding:15px; font-size:16px;}
   .login-note{font-size:12.5px; color:var(--muted); margin-top:16px; line-height:1.6;}
   .login-features{display:flex; justify-content:center; gap:22px; margin-top:24px;}
@@ -388,6 +393,9 @@
     </div>
     <h1>Quick Bill</h1>
     <p>Enter your shop name to start. Your rates, stock, and favourites are saved under this name and come back exactly as you left them next time.</p>
+    <select id="knownShopsDropdown" style="display:none;">
+      <option value="">Choose a connected shop…</option>
+    </select>
     <input type="text" id="shopNameInput" placeholder="e.g. Sharma Kirana Store" autocomplete="off">
     <button id="startBtn">Start Billing</button>
     <div class="login-note" id="loginNote"></div>
@@ -773,6 +781,46 @@ document.getElementById('shopNameInput').addEventListener('keydown', (e)=>{
   if(e.key === 'Enter') startShop();
 });
 
+// Scans this device's saved shops and lists only the ones already connected
+// to a Google Sheet — brand-new/unconnected shop names never show up here,
+// so there's no confusion about which ones are actually set up yet.
+function populateKnownShopsDropdown(){
+  const dropdown = document.getElementById('knownShopsDropdown');
+  if(!storageAvailable){ dropdown.style.display = 'none'; return; }
+
+  const connected = [];
+  try{
+    for(let i = 0; i < localStorage.length; i++){
+      const key = localStorage.key(i);
+      if(!key || !key.startsWith('shop:')) continue;
+      const raw = localStorage.getItem(key);
+      if(!raw) continue;
+      const saved = JSON.parse(raw);
+      if(saved && saved.sheetUrl && saved.shopName){
+        connected.push(saved.shopName);
+      }
+    }
+  } catch(err){ /* ignore malformed entries, just show whatever parsed fine */ }
+
+  if(connected.length === 0){
+    dropdown.style.display = 'none';
+    return;
+  }
+  connected.sort((a, b) => a.localeCompare(b));
+  dropdown.innerHTML = '<option value="">Choose a connected shop…</option>'
+    + connected.map(name => `<option value="${name.replace(/"/g,'&quot;')}">${name}</option>`).join('');
+  dropdown.style.display = 'block';
+}
+
+document.getElementById('knownShopsDropdown').addEventListener('change', (e)=>{
+  if(e.target.value){
+    document.getElementById('shopNameInput').value = e.target.value;
+    document.getElementById('shopNameInput').focus();
+  }
+});
+
+populateKnownShopsDropdown();
+
 let sheetPollTimer = null;
 
 function enterApp(){
@@ -892,6 +940,7 @@ document.getElementById('switchShopBtn').addEventListener('click', ()=>{
   document.getElementById('loginOverlay').style.display = 'flex';
   document.getElementById('shopNameInput').value = '';
   document.getElementById('loginNote').textContent = '';
+  populateKnownShopsDropdown();
 });
 
 // Browsers (and mobile app wrappers) throttle background setInterval timers
@@ -1891,6 +1940,7 @@ function handleShopRemovedByAdmin(){
   document.getElementById('loginOverlay').style.display = 'flex';
   document.getElementById('shopNameInput').value = '';
   document.getElementById('loginNote').textContent = 'This shop was removed by your service provider. Contact them, or start again with a shop name.';
+  populateKnownShopsDropdown();
 }
 
 async function readParchaImage(base64, mediaType){
