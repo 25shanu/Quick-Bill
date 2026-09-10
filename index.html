@@ -371,6 +371,9 @@
     .qtybox select{font-size:12px;}
   }
 </style>
+<!-- Firebase Realtime Database — used only for instant lock/unlock push, nothing else -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 </head>
 <body>
 
@@ -786,6 +789,7 @@ function enterApp(){
   renderTabs();
   renderBill();
   applyLockState(); // show the "Payment Not Done" overlay right away if this shop was already locked last time we checked
+  startFirebaseLockListener(); // subscribe for instant lock/unlock push, if Firebase is configured
 
   // Check in with the sheet (and the registry, for the link itself) right
   // away — this is what makes admin dashboard edits, including a brand new
@@ -834,12 +838,14 @@ function startShop(){
       items = saved.items; // exact rates/stock/favourites from last time, untouched until you edit them
       sheetUrl = saved.sheetUrl || '';
       locked = !!saved.locked;
+      sheetLockedValue = locked;
     } else {
       // brand new shop name — start completely empty, never carry over
       // whatever the previous shop had loaded in this browser session
       items = [];
       sheetUrl = '';
       locked = false;
+      sheetLockedValue = false;
       scheduleSave();
       registerShopName(shopName); // let the admin dashboard know a new shop just showed up
     }
@@ -866,6 +872,7 @@ function startShop(){
         items = saved.items;
         sheetUrl = saved.sheetUrl || '';
         locked = !!saved.locked;
+        sheetLockedValue = locked;
       }
       enterApp();
     }
@@ -875,9 +882,11 @@ function startShop(){
 document.getElementById('switchShopBtn').addEventListener('click', ()=>{
   scheduleSave();
   clearInterval(sheetPollTimer);
+  stopFirebaseLockListener();
   shopName = '';
   sheetUrl = '';
   locked = false;
+  sheetLockedValue = false;
   try{ localStorage.removeItem(CURRENT_SHOP_KEY); } catch(err){}
   document.getElementById('appRoot').style.display = 'none';
   document.getElementById('loginOverlay').style.display = 'flex';
@@ -964,15 +973,15 @@ async function pullFromSheet(showStatus, retry){
       stock: Number(it.stock) || 0,
       favorite: !!it.favorite
     }));
-    if(typeof data.locked === 'boolean') locked = data.locked;
+    if(typeof data.locked === 'boolean') sheetLockedValue = data.locked;
     // if the field is missing entirely (old Apps Script not yet redeployed
-    // with lock support), leave locked exactly as it was — never assume
-    // unlocked just because the sheet didn't say either way
+    // with lock support), leave sheetLockedValue exactly as it was — never
+    // assume unlocked just because the sheet didn't say either way
     renderRates();
     renderFavStrip();
     renderBill();
     scheduleSaveLocalOnly();
-    applyLockState();
+    recomputeLockState();
     if(showStatus) setSheetStatus(`Loaded ${items.length} items from your sheet.`, 'ok');
   } catch(err){
     // network hiccup or unreachable sheet — the existing local catalog (from
@@ -1025,16 +1034,16 @@ document.getElementById('connectSheetBtn').addEventListener('click', async ()=>{
       stock: Number(it.stock) || 0,
       favorite: !!it.favorite
     }));
-    if(typeof data.locked === 'boolean') locked = data.locked;
+    if(typeof data.locked === 'boolean') sheetLockedValue = data.locked;
     // if the field is missing entirely (old Apps Script not yet redeployed
-    // with lock support), leave locked exactly as it was — never assume
-    // unlocked just because the sheet didn't say either way
+    // with lock support), leave sheetLockedValue exactly as it was — never
+    // assume unlocked just because the sheet didn't say either way
     renderRates();
     renderFavStrip();
     renderBill();
     scheduleSaveLocalOnly();
     updateSheetUiState();
-    applyLockState();
+    recomputeLockState();
     setSheetStatus(`Connected — loaded ${items.length} items from your sheet.`, 'ok');
   } catch(err){
     // link didn't work — nothing gets committed, field stays editable so it can be fixed
@@ -1064,12 +1073,13 @@ document.getElementById('lockedCheckAgainBtn').addEventListener('click', async (
   try{
     const response = await fetch(sheetUrl);
     const data = await response.json();
-    if(typeof data.locked === 'boolean') locked = data.locked;
+    if(typeof data.locked === 'boolean') sheetLockedValue = data.locked;
     // if the field is missing entirely (old Apps Script not yet redeployed
-    // with lock support), leave locked exactly as it was — never assume
-    // unlocked just because the sheet didn't say either way
+    // with lock support), leave sheetLockedValue exactly as it was — never
+    // assume unlocked just because the sheet didn't say either way
+    recomputeLockState();
     if(!locked){
-      applyLockState();
+      // recomputeLockState already updated the overlay
     } else {
       statusEl.textContent = 'Still locked — please contact your service provider.';
     }
@@ -1758,6 +1768,69 @@ const SCAN_ENDPOINT = 'https://polished-art-9502.shanukumar25ds.workers.dev/';
 // dashboard — it's fixed by your service provider, not something shopkeepers touch.
 const REGISTRY_ENDPOINT = 'https://quick-bill-registry.shanukumar25ds.workers.dev/';
 
+// Paste the firebaseConfig object Firebase gave you when you registered a Web
+// app (Project settings > General > Your apps). This is what makes locking
+// near-instant — the shopkeeper's app gets notified the moment you lock or
+// unlock a shop, instead of waiting for the next periodic check.
+// If left as PASTE_..., the app just falls back to the sheet-based polling
+// as before — nothing breaks, it just won't be instant.
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyB9UtfbNaAonTA52Gv6MyaGK1EF_98fR2c",
+  databaseURL: "https://quick-bill-59235-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "quick-bill-59235"
+};
+
+// Turns a shop name into a safe Firebase path segment — Firebase keys can't
+// contain '.', '#', '$', '/', '[', ']', so those get replaced.
+function fbShopKey(name){
+  return (name || '').trim().toLowerCase().replace(/[.#$\/\[\]]/g, '_');
+}
+
+let fbApp = null;
+let fbLockRef = null;
+let fbLockedValue = null;   // what Firebase's real-time listener last said (null = not known yet)
+let sheetLockedValue = false; // what the sheet's own Apps Script last said, via normal polling
+
+function firebaseConfigured(){
+  return FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.startsWith('PASTE_')
+      && FIREBASE_CONFIG.databaseURL && !FIREBASE_CONFIG.databaseURL.startsWith('PASTE_');
+}
+
+// Subscribes to this shop's lock value in Firebase, so any change the admin
+// makes reaches this device within about a second — no polling wait at all.
+// Safe to call repeatedly; only sets up a fresh listener when the shop changes.
+function startFirebaseLockListener(){
+  if(!firebaseConfigured() || !shopName) return;
+  try{
+    if(!fbApp){
+      fbApp = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(FIREBASE_CONFIG);
+    }
+    if(fbLockRef) fbLockRef.off();
+    fbLockRef = firebase.database().ref('shops/' + fbShopKey(shopName) + '/locked');
+    fbLockRef.on('value', (snapshot)=>{
+      fbLockedValue = snapshot.val() === true;
+      recomputeLockState();
+    });
+  } catch(err){
+    // Firebase not reachable or misconfigured — the app still works fine off
+    // the existing sheet-based polling alone, just without the instant push
+  }
+}
+
+function stopFirebaseLockListener(){
+  if(fbLockRef) fbLockRef.off();
+  fbLockRef = null;
+  fbLockedValue = null;
+}
+
+// Combines both sources: Firebase (instant) and the sheet's own record
+// (durable fallback). Locked wins if EITHER source says locked, so a
+// temporary Firebase hiccup can never accidentally unlock a shop early.
+function recomputeLockState(){
+  locked = !!fbLockedValue || !!sheetLockedValue;
+  applyLockState();
+}
+
 // Fire-and-forget: tell the shared registry a new shop name just appeared,
 // so it shows up in the admin dashboard's "New shop requests" list without
 // needing to be typed in twice. Silently does nothing if not configured yet,
@@ -1803,6 +1876,7 @@ async function resolveSheetUrlFromRegistry(){
 // stale is left behind if the same name is ever used again.
 function handleShopRemovedByAdmin(){
   clearInterval(sheetPollTimer);
+  stopFirebaseLockListener();
   try{
     localStorage.removeItem(shopKey(shopName));
     localStorage.removeItem(CURRENT_SHOP_KEY);
@@ -1810,6 +1884,7 @@ function handleShopRemovedByAdmin(){
   shopName = '';
   sheetUrl = '';
   locked = false;
+  sheetLockedValue = false;
   items = [];
   document.getElementById('lockedOverlay').style.display = 'none';
   document.getElementById('appRoot').style.display = 'none';
