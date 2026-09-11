@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<link rel="manifest" href="manifest.json">
+  <link rel="manifest" href="manifest.json">
 <script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js');
@@ -276,13 +276,38 @@
   .login-card input{
     width:100%; font-family:inherit; font-size:17px; padding:15px 16px; border:1.5px solid var(--line);
     border-radius:10px; margin-bottom:14px; text-align:center; transition:border-color 0.15s;
+    text-transform:uppercase;
   }
   .login-card input:focus{outline:none; border-color:var(--accent);}
-  .login-card select{
-    width:100%; font-family:inherit; font-size:15px; padding:13px 14px; border:1.5px solid var(--line);
-    border-radius:10px; margin-bottom:10px; text-align:center; color:var(--muted); background:var(--paper2);
+  .login-card input::placeholder{text-transform:none;}
+
+  .known-shops{position:relative; margin-bottom:12px; text-align:left;}
+  .known-shops-trigger{
+    width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px;
+    font-family:inherit; font-size:14.5px; font-weight:600; color:var(--accent-dark);
+    background:var(--paper2); border:1.5px solid var(--line); border-radius:10px;
+    padding:13px 16px; cursor:pointer; transition:border-color 0.15s;
   }
-  .login-card select:focus{outline:none; border-color:var(--accent);}
+  .known-shops-trigger:hover{border-color:var(--accent);}
+  .known-shops-trigger svg{flex-shrink:0; transition:transform 0.15s; color:var(--accent);}
+  .known-shops.open .known-shops-trigger svg{transform:rotate(180deg);}
+  .known-shops-panel{
+    display:none; position:absolute; top:calc(100% + 6px); left:0; right:0; z-index:20;
+    background:var(--paper); border:1.5px solid var(--line); border-radius:12px;
+    box-shadow:0 10px 30px rgba(46,43,38,0.16); max-height:220px; overflow-y:auto; padding:6px;
+  }
+  .known-shops.open .known-shops-panel{display:block;}
+  .known-shop-row{
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:11px 12px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600;
+    color:var(--ink); text-transform:uppercase;
+  }
+  .known-shop-row:hover{background:var(--paper2);}
+  .known-shop-row .del-shop{
+    flex-shrink:0; width:24px; height:24px; display:flex; align-items:center; justify-content:center;
+    border-radius:50%; color:var(--muted); font-size:13px; font-weight:700; text-transform:none;
+  }
+  .known-shop-row .del-shop:hover{background:var(--low); color:#fff;}
   .login-card button{width:100%; padding:15px; font-size:16px;}
   .login-note{font-size:12.5px; color:var(--muted); margin-top:16px; line-height:1.6;}
   .login-features{display:flex; justify-content:center; gap:22px; margin-top:24px;}
@@ -393,9 +418,15 @@
     </div>
     <h1>Quick Bill</h1>
     <p>Enter your shop name to start. Your rates, stock, and favourites are saved under this name and come back exactly as you left them next time.</p>
-    <select id="knownShopsDropdown" style="display:none;">
-      <option value="">Choose a connected shop…</option>
-    </select>
+
+    <div class="known-shops" id="knownShopsWrap" style="display:none;">
+      <button type="button" class="known-shops-trigger" id="knownShopsTrigger">
+        <span id="knownShopsTriggerLabel">Choose a connected shop</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="known-shops-panel" id="knownShopsPanel"></div>
+    </div>
+
     <input type="text" id="shopNameInput" placeholder="e.g. Sharma Kirana Store" autocomplete="off">
     <button id="startBtn">Start Billing</button>
     <div class="login-note" id="loginNote"></div>
@@ -785,8 +816,9 @@ document.getElementById('shopNameInput').addEventListener('keydown', (e)=>{
 // to a Google Sheet — brand-new/unconnected shop names never show up here,
 // so there's no confusion about which ones are actually set up yet.
 function populateKnownShopsDropdown(){
-  const dropdown = document.getElementById('knownShopsDropdown');
-  if(!storageAvailable){ dropdown.style.display = 'none'; return; }
+  const wrap = document.getElementById('knownShopsWrap');
+  const panel = document.getElementById('knownShopsPanel');
+  if(!storageAvailable){ wrap.style.display = 'none'; return; }
 
   const connected = [];
   try{
@@ -803,19 +835,49 @@ function populateKnownShopsDropdown(){
   } catch(err){ /* ignore malformed entries, just show whatever parsed fine */ }
 
   if(connected.length === 0){
-    dropdown.style.display = 'none';
+    wrap.style.display = 'none';
+    wrap.classList.remove('open');
     return;
   }
+
   connected.sort((a, b) => a.localeCompare(b));
-  dropdown.innerHTML = '<option value="">Choose a connected shop…</option>'
-    + connected.map(name => `<option value="${name.replace(/"/g,'&quot;')}">${name}</option>`).join('');
-  dropdown.style.display = 'block';
+  panel.innerHTML = connected.map(name => {
+    const safe = name.replace(/"/g, '&quot;');
+    return `<div class="known-shop-row" data-name="${safe}">
+      <span>${safe}</span>
+      <span class="del-shop" data-name="${safe}" title="Remove from this list">✕</span>
+    </div>`;
+  }).join('');
+  wrap.style.display = 'block';
+
+  panel.querySelectorAll('.known-shop-row').forEach(row=>{
+    row.addEventListener('click', (e)=>{
+      if(e.target.classList.contains('del-shop')) return; // handled separately below
+      document.getElementById('shopNameInput').value = row.dataset.name;
+      wrap.classList.remove('open');
+      document.getElementById('shopNameInput').focus();
+    });
+  });
+  panel.querySelectorAll('.del-shop').forEach(btn=>{
+    btn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const name = btn.dataset.name;
+      if(!confirm(`Remove "${name}" from this list?\n\nThis only clears it from this quick-access list on this device — it does not delete the shop, its bills, or its Google Sheet.`)) return;
+      try{ localStorage.removeItem(shopKey(name)); } catch(err){}
+      populateKnownShopsDropdown(); // refresh the list
+    });
+  });
 }
 
-document.getElementById('knownShopsDropdown').addEventListener('change', (e)=>{
-  if(e.target.value){
-    document.getElementById('shopNameInput').value = e.target.value;
-    document.getElementById('shopNameInput').focus();
+document.getElementById('knownShopsTrigger').addEventListener('click', ()=>{
+  document.getElementById('knownShopsWrap').classList.toggle('open');
+});
+
+// close the panel if the shopkeeper taps/clicks anywhere outside it
+document.addEventListener('click', (e)=>{
+  const wrap = document.getElementById('knownShopsWrap');
+  if(wrap.classList.contains('open') && !wrap.contains(e.target)){
+    wrap.classList.remove('open');
   }
 });
 
