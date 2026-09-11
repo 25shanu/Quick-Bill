@@ -284,23 +284,24 @@
   .known-shops{position:relative; margin-bottom:12px; text-align:left;}
   .known-shops-trigger{
     width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px;
-    font-family:inherit; font-size:14.5px; font-weight:600; color:var(--accent-dark);
-    background:var(--paper2); border:1.5px solid var(--line); border-radius:10px;
-    padding:13px 16px; cursor:pointer; transition:border-color 0.15s;
+    font-family:'Poppins', 'Inter', sans-serif; font-size:14.5px; font-weight:600; color:var(--accent-dark);
+    background:#ffffff; border:1.5px solid var(--line); border-radius:10px;
+    padding:13px 16px; cursor:pointer; transition:border-color 0.15s, background 0.15s;
   }
   .known-shops-trigger:hover{border-color:var(--accent);}
+  .known-shops.open .known-shops-trigger{background:#ffffff; border-color:var(--accent);}
   .known-shops-trigger svg{flex-shrink:0; transition:transform 0.15s; color:var(--accent);}
   .known-shops.open .known-shops-trigger svg{transform:rotate(180deg);}
   .known-shops-panel{
     display:none; position:absolute; top:calc(100% + 6px); left:0; right:0; z-index:20;
-    background:var(--paper); border:1.5px solid var(--line); border-radius:12px;
+    background:#ffffff; border:1.5px solid var(--line); border-radius:12px;
     box-shadow:0 10px 30px rgba(46,43,38,0.16); max-height:220px; overflow-y:auto; padding:6px;
   }
   .known-shops.open .known-shops-panel{display:block;}
   .known-shop-row{
     display:flex; align-items:center; justify-content:space-between; gap:8px;
     padding:11px 12px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600;
-    color:var(--ink); text-transform:uppercase;
+    font-family:'Poppins', 'Inter', sans-serif; color:var(--ink); text-transform:uppercase; background:#ffffff;
   }
   .known-shop-row:hover{background:var(--paper2);}
   .known-shop-row .del-shop{
@@ -769,6 +770,7 @@ let items = [
 // running on your real hosted site (GitHub Pages), not inside Claude's preview.
 let shopName = '';
 const CURRENT_SHOP_KEY = 'ration-shop-current-login';
+const LAST_USED_SHOP_KEY = 'ration-shop-last-used'; // persists across "Switch Shop" — this is what the login dropdown reads, so it only ever shows the one shop this device actually belongs to
 
 let storageAvailable = false;
 try{
@@ -812,48 +814,48 @@ document.getElementById('shopNameInput').addEventListener('keydown', (e)=>{
   if(e.key === 'Enter') startShop();
 });
 
-// Scans this device's saved shops and lists only the ones already connected
-// to a Google Sheet — brand-new/unconnected shop names never show up here,
-// so there's no confusion about which ones are actually set up yet.
+// Shows only the ONE shop name this device has actually logged in with
+// before (the last one used) — not every shop name that might ever have
+// touched this browser. This keeps the dropdown personal to the shopkeeper
+// using this device, instead of listing unrelated shops from testing or a
+// previously shared device. It only shows up at all once that shop is
+// actually connected to a Google Sheet.
 function populateKnownShopsDropdown(){
   const wrap = document.getElementById('knownShopsWrap');
   const panel = document.getElementById('knownShopsPanel');
+  const triggerLabel = document.getElementById('knownShopsTriggerLabel');
   if(!storageAvailable){ wrap.style.display = 'none'; return; }
 
-  const connected = [];
+  let name = null;
   try{
-    for(let i = 0; i < localStorage.length; i++){
-      const key = localStorage.key(i);
-      if(!key || !key.startsWith('shop:')) continue;
-      const raw = localStorage.getItem(key);
-      if(!raw) continue;
-      const saved = JSON.parse(raw);
-      if(saved && saved.sheetUrl && saved.shopName){
-        connected.push(saved.shopName);
+    const lastUsed = localStorage.getItem(LAST_USED_SHOP_KEY);
+    if(lastUsed){
+      const saved = loadShop(lastUsed);
+      if(saved && saved.sheetUrl){
+        name = lastUsed;
       }
     }
-  } catch(err){ /* ignore malformed entries, just show whatever parsed fine */ }
+  } catch(err){ /* ignore malformed entries */ }
 
-  if(connected.length === 0){
+  if(!name){
     wrap.style.display = 'none';
     wrap.classList.remove('open');
     return;
   }
 
-  connected.sort((a, b) => a.localeCompare(b));
-  panel.innerHTML = connected.map(name => {
-    const safe = name.replace(/"/g, '&quot;');
-    return `<div class="known-shop-row" data-name="${safe}">
-      <span>${safe}</span>
-      <span class="del-shop" data-name="${safe}" title="Remove from this list">✕</span>
-    </div>`;
-  }).join('');
+  triggerLabel.textContent = 'Choose a connected shop';
+  const safe = name.replace(/"/g, '&quot;');
+  panel.innerHTML = `<div class="known-shop-row" data-name="${safe}">
+    <span>${safe}</span>
+    <span class="del-shop" data-name="${safe}" title="Remove from this list">✕</span>
+  </div>`;
   wrap.style.display = 'block';
 
   panel.querySelectorAll('.known-shop-row').forEach(row=>{
     row.addEventListener('click', (e)=>{
       if(e.target.classList.contains('del-shop')) return; // handled separately below
       document.getElementById('shopNameInput').value = row.dataset.name;
+      triggerLabel.textContent = row.dataset.name;
       wrap.classList.remove('open');
       document.getElementById('shopNameInput').focus();
     });
@@ -861,10 +863,10 @@ function populateKnownShopsDropdown(){
   panel.querySelectorAll('.del-shop').forEach(btn=>{
     btn.addEventListener('click', (e)=>{
       e.stopPropagation();
-      const name = btn.dataset.name;
-      if(!confirm(`Remove "${name}" from this list?\n\nThis only clears it from this quick-access list on this device — it does not delete the shop, its bills, or its Google Sheet.`)) return;
-      try{ localStorage.removeItem(shopKey(name)); } catch(err){}
-      populateKnownShopsDropdown(); // refresh the list
+      const delName = btn.dataset.name;
+      if(!confirm(`Remove "${delName}" from this list?\n\nThis only clears it from this quick-access list on this device — it does not delete the shop, its bills, or its Google Sheet.`)) return;
+      try{ localStorage.removeItem(LAST_USED_SHOP_KEY); } catch(err){}
+      populateKnownShopsDropdown(); // refresh — the widget will now hide itself since nothing is left to show
     });
   });
 }
@@ -961,7 +963,10 @@ function startShop(){
     }
     // remember which shop is logged in, so a page refresh stays logged in
     // until "switch shop" is clicked — it does NOT log out on its own
-    try{ localStorage.setItem(CURRENT_SHOP_KEY, shopName); } catch(err){}
+    try{
+      localStorage.setItem(CURRENT_SHOP_KEY, shopName);
+      localStorage.setItem(LAST_USED_SHOP_KEY, shopName);
+    } catch(err){}
   } else {
     noteEl.textContent = "Note: this browser is blocking storage (private/incognito mode?), so nothing will be saved between visits.";
   }
