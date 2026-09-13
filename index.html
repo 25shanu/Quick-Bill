@@ -429,6 +429,7 @@
     </div>
 
     <input type="text" id="shopNameInput" placeholder="e.g. Sharma Kirana Store" autocomplete="off">
+    <input type="text" id="shopCodeInput" placeholder="4-digit code from your provider" autocomplete="off" inputmode="numeric" maxlength="4" style="display:none;">
     <button id="startBtn">Start Billing</button>
     <div class="login-note" id="loginNote"></div>
     <div class="login-features">
@@ -786,6 +787,7 @@ function shopKey(name){ return 'shop:' + name.toLowerCase().trim(); }
 
 let sheetUrl = ''; // this shop's connected Google Sheet web app URL, if any
 let locked = false; // set by your service provider from the admin dashboard when payment isn't done
+let shopCode = null; // the unique 4-digit code this shop was verified with — used for all registry lookups instead of the (possibly duplicated) shop name
 
 function loadShop(name){
   if(!storageAvailable) return null;
@@ -803,7 +805,7 @@ function scheduleSave(){
   clearTimeout(saveTimer);
   saveTimer = setTimeout(()=>{
     try{
-      localStorage.setItem(shopKey(shopName), JSON.stringify({ shopName, items, sheetUrl, locked }));
+      localStorage.setItem(shopKey(shopName), JSON.stringify({ shopName, items, sheetUrl, locked, code: shopCode }));
     } catch(err){ /* ignore transient save errors, e.g. storage full */ }
     pushToSheet(); // keep the connected sheet in sync with whatever just changed, if one's connected
   }, 400);
@@ -811,6 +813,9 @@ function scheduleSave(){
 
 document.getElementById('startBtn').addEventListener('click', startShop);
 document.getElementById('shopNameInput').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') startShop();
+});
+document.getElementById('shopCodeInput').addEventListener('keydown', (e)=>{
   if(e.key === 'Enter') startShop();
 });
 
@@ -938,40 +943,123 @@ function applyLockState(){
   }
 }
 
-function startShop(){
+let awaitingCodeForName = null; // tracks which name we've revealed the code field for, so we only ping the registry once per attempt
+
+function showCodeField(name){
+  const codeInput = document.getElementById('shopCodeInput');
+  const btn = document.getElementById('startBtn');
+  const noteEl = document.getElementById('loginNote');
+  codeInput.style.display = 'block';
+  codeInput.value = '';
+  codeInput.focus();
+  btn.textContent = 'Verify & Continue';
+  noteEl.textContent = "This shop hasn't connected yet. Enter the 4-digit code your provider gave you.";
+  if(awaitingCodeForName !== name){
+    awaitingCodeForName = name;
+    registerShopName(name); // let the admin dashboard know someone's trying this name, in case it still needs a code
+  }
+}
+
+function resetLoginForm(){
+  document.getElementById('shopCodeInput').style.display = 'none';
+  document.getElementById('shopCodeInput').value = '';
+  document.getElementById('startBtn').textContent = 'Start Billing';
+  awaitingCodeForName = null;
+}
+
+async function verifyShopCode(code){
+  if(!REGISTRY_ENDPOINT || REGISTRY_ENDPOINT.startsWith('PASTE_')) return { ok: false };
+  try{
+    const response = await fetch(REGISTRY_ENDPOINT.replace(/\/?$/, '/') + 'verify-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code })
+    });
+    return await response.json();
+  } catch(err){
+    return { ok: false };
+  }
+}
+
+async function startShop(){
   const nameInput = document.getElementById('shopNameInput').value.trim();
   if(!nameInput) return;
-  shopName = nameInput;
   const noteEl = document.getElementById('loginNote');
+  const codeInput = document.getElementById('shopCodeInput');
+  let codeVisible = codeInput.style.display !== 'none';
 
-  if(storageAvailable){
-    const saved = loadShop(shopName);
-    if(saved && Array.isArray(saved.items)){
-      items = saved.items; // exact rates/stock/favourites from last time, untouched until you edit them
-      sheetUrl = saved.sheetUrl || '';
-      locked = !!saved.locked;
-      sheetLockedValue = locked;
-    } else {
-      // brand new shop name — start completely empty, never carry over
-      // whatever the previous shop had loaded in this browser session
-      items = [];
-      sheetUrl = '';
-      locked = false;
-      sheetLockedValue = false;
-      scheduleSave();
-      registerShopName(shopName); // let the admin dashboard know a new shop just showed up
-    }
-    // remember which shop is logged in, so a page refresh stays logged in
-    // until "switch shop" is clicked — it does NOT log out on its own
+  // if the shop name was changed after the code field appeared, start over —
+  // a code entered for one name shouldn't silently get applied to another
+  if(codeVisible && awaitingCodeForName !== nameInput){
+    resetLoginForm();
+    codeVisible = false;
+  }
+
+  if(!storageAvailable){
+    // can't check anything meaningfully — proceed in degraded mode, nothing persists anyway
+    shopName = nameInput;
+    items = []; sheetUrl = ''; locked = false; sheetLockedValue = false; shopCode = null;
+    noteEl.textContent = "Note: this browser is blocking storage (private/incognito mode?), so nothing will be saved between visits.";
+    enterApp();
+    return;
+  }
+
+  const saved = loadShop(nameInput);
+  if(saved && saved.sheetUrl){
+    // already connected on this device before — no code needed, ever, unless the shop is deleted
+    shopName = nameInput;
+    items = Array.isArray(saved.items) ? saved.items : [];
+    sheetUrl = saved.sheetUrl;
+    locked = !!saved.locked;
+    sheetLockedValue = locked;
+    shopCode = saved.code || null; // stays null for shops connected before this feature existed — that's fine, they just won't get registry-based auto-sync
     try{
       localStorage.setItem(CURRENT_SHOP_KEY, shopName);
       localStorage.setItem(LAST_USED_SHOP_KEY, shopName);
     } catch(err){}
-  } else {
-    noteEl.textContent = "Note: this browser is blocking storage (private/incognito mode?), so nothing will be saved between visits.";
+    resetLoginForm();
+    enterApp();
+    return;
   }
 
-  enterApp();
+  // not connected on this device yet — needs the 4-digit code first
+  if(!codeVisible){
+    showCodeField(nameInput);
+    return;
+  }
+
+  const code = codeInput.value.trim();
+  if(!code){
+    noteEl.textContent = 'Please enter the 4-digit code your provider gave you.';
+    return;
+  }
+
+  const btn = document.getElementById('startBtn');
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+  noteEl.textContent = '';
+
+  const result = await verifyShopCode(code);
+  btn.disabled = false;
+
+  if(result && result.ok){
+    shopName = nameInput;
+    items = [];
+    sheetUrl = result.sheetUrl || '';
+    locked = false;
+    sheetLockedValue = false;
+    shopCode = code;
+    scheduleSave();
+    try{
+      localStorage.setItem(CURRENT_SHOP_KEY, shopName);
+      localStorage.setItem(LAST_USED_SHOP_KEY, shopName);
+    } catch(err){}
+    resetLoginForm();
+    enterApp();
+  } else {
+    btn.textContent = 'Verify & Continue';
+    noteEl.textContent = "That code doesn't match. Please double-check it with your provider and try again.";
+  }
 }
 
 // on page load, silently resume the last logged-in shop instead of asking again —
@@ -988,6 +1076,7 @@ function startShop(){
         sheetUrl = saved.sheetUrl || '';
         locked = !!saved.locked;
         sheetLockedValue = locked;
+        shopCode = saved.code || null;
       }
       enterApp();
     }
@@ -1002,11 +1091,13 @@ document.getElementById('switchShopBtn').addEventListener('click', ()=>{
   sheetUrl = '';
   locked = false;
   sheetLockedValue = false;
+  shopCode = null;
   try{ localStorage.removeItem(CURRENT_SHOP_KEY); } catch(err){}
   document.getElementById('appRoot').style.display = 'none';
   document.getElementById('loginOverlay').style.display = 'flex';
   document.getElementById('shopNameInput').value = '';
   document.getElementById('loginNote').textContent = '';
+  resetLoginForm();
   populateKnownShopsDropdown();
 });
 
@@ -1122,7 +1213,7 @@ async function pushToSheet(){
 function scheduleSaveLocalOnly(){
   if(!storageAvailable || !shopName) return;
   try{
-    localStorage.setItem(shopKey(shopName), JSON.stringify({ shopName, items, sheetUrl, locked }));
+    localStorage.setItem(shopKey(shopName), JSON.stringify({ shopName, items, sheetUrl, locked, code: shopCode }));
   } catch(err){}
 }
 
@@ -1896,10 +1987,12 @@ const FIREBASE_CONFIG = {
   projectId: "quick-bill-59235"
 };
 
-// Turns a shop name into a safe Firebase path segment — Firebase keys can't
-// contain '.', '#', '$', '/', '[', ']', so those get replaced.
-function fbShopKey(name){
-  return (name || '').trim().toLowerCase().replace(/[.#$\/\[\]]/g, '_');
+// Turns a shop's unique code into a safe Firebase path segment. We key
+// Firebase by CODE, not by shop name — two different shops can share the
+// exact same display name, but never the same code, so this is what
+// actually keeps their lock status from colliding with each other.
+function fbShopKey(code){
+  return (code || '').toString().trim().replace(/[.#$\/\[\]]/g, '_');
 }
 
 let fbApp = null;
@@ -1914,15 +2007,17 @@ function firebaseConfigured(){
 
 // Subscribes to this shop's lock value in Firebase, so any change the admin
 // makes reaches this device within about a second — no polling wait at all.
-// Safe to call repeatedly; only sets up a fresh listener when the shop changes.
+// Only runs once this shop has an actual verified code — without one there's
+// nothing safe to key Firebase on (falling back to the name would reopen the
+// exact duplicate-name collision this whole system was redesigned to avoid).
 function startFirebaseLockListener(){
-  if(!firebaseConfigured() || !shopName) return;
+  if(!firebaseConfigured() || !shopCode) return;
   try{
     if(!fbApp){
       fbApp = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(FIREBASE_CONFIG);
     }
     if(fbLockRef) fbLockRef.off();
-    fbLockRef = firebase.database().ref('shops/' + fbShopKey(shopName) + '/locked');
+    fbLockRef = firebase.database().ref('shops/' + fbShopKey(shopCode) + '/locked');
     fbLockRef.on('value', (snapshot)=>{
       fbLockedValue = snapshot.val() === true;
       recomputeLockState();
@@ -1962,13 +2057,12 @@ function registerShopName(name){
 
 // Checks the shared registry for whatever sheet link the admin has set for
 // this shop, and silently switches to it if it's different from what's
-// currently connected. This is what makes the sheet link fully
-// provider-controlled — the shopkeeper never needs to paste or update
-// anything themselves once the provider has set it from the admin dashboard.
+// currently connected. Keyed by CODE, not name — the same reasoning as
+// Firebase above. Only runs once this device has an actual verified code.
 async function resolveSheetUrlFromRegistry(){
-  if(!REGISTRY_ENDPOINT || REGISTRY_ENDPOINT.startsWith('PASTE_') || !shopName) return;
+  if(!REGISTRY_ENDPOINT || REGISTRY_ENDPOINT.startsWith('PASTE_') || !shopCode) return;
   try{
-    const response = await fetch(REGISTRY_ENDPOINT.replace(/\/?$/, '/') + 'shop?name=' + encodeURIComponent(shopName));
+    const response = await fetch(REGISTRY_ENDPOINT.replace(/\/?$/, '/') + 'shop?code=' + encodeURIComponent(shopCode));
     const data = await response.json();
     if(data.removed){
       handleShopRemovedByAdmin();
@@ -1996,17 +2090,22 @@ function handleShopRemovedByAdmin(){
   try{
     localStorage.removeItem(shopKey(shopName));
     localStorage.removeItem(CURRENT_SHOP_KEY);
+    if(localStorage.getItem(LAST_USED_SHOP_KEY) === shopName){
+      localStorage.removeItem(LAST_USED_SHOP_KEY);
+    }
   } catch(err){}
   shopName = '';
   sheetUrl = '';
   locked = false;
   sheetLockedValue = false;
+  shopCode = null;
   items = [];
   document.getElementById('lockedOverlay').style.display = 'none';
   document.getElementById('appRoot').style.display = 'none';
   document.getElementById('loginOverlay').style.display = 'flex';
   document.getElementById('shopNameInput').value = '';
   document.getElementById('loginNote').textContent = 'This shop was removed by your service provider. Contact them, or start again with a shop name.';
+  resetLoginForm();
   populateKnownShopsDropdown();
 }
 
