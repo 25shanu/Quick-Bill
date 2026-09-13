@@ -1,12 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <link rel="manifest" href="manifest.json">
-<script>
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js');
-  }
-</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
@@ -807,7 +801,11 @@ function scheduleSave(){
     try{
       localStorage.setItem(shopKey(shopName), JSON.stringify({ shopName, items, sheetUrl, locked, code: shopCode }));
     } catch(err){ /* ignore transient save errors, e.g. storage full */ }
-    pushToSheet(); // keep the connected sheet in sync with whatever just changed, if one's connected
+    // NOTE: this app deliberately never writes the product catalog back to
+    // the sheet. Only the admin dashboard is allowed to do that. Favourite
+    // stars stay local to this device — that's a small trade-off compared to
+    // the sheet ever being overwritten by a device with an empty/incomplete
+    // local copy (which is exactly what caused a real data-loss incident).
   }, 400);
 }
 
@@ -1197,15 +1195,17 @@ async function pullFromSheet(showStatus, retry){
   }
 }
 
+// Deliberately disabled. This used to push the local catalog (including
+// favourite stars) back to the connected sheet on every change — but that
+// meant ANY device with an empty or incomplete local copy (e.g. a second
+// phone logging in before its first sheet pull finished) could silently
+// wipe the entire sheet, since the Apps Script does a full clear+rewrite of
+// whatever it's given. That is exactly what caused a real loss of product
+// data. The billing app must never be able to write the catalog back to
+// the sheet — only the admin dashboard does that now, deliberately, one
+// shop at a time. Kept as a stub in case anything still references it.
 async function pushToSheet(){
-  if(!sheetUrl) return;
-  try{
-    await fetch(sheetUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids a CORS preflight Apps Script can't handle
-      body: JSON.stringify({ items })
-    });
-  } catch(err){ /* offline or sheet unreachable — local copy still has the latest data */ }
+  // intentionally does nothing
 }
 
 // saves locally without also re-triggering a push (used right after a pull,
