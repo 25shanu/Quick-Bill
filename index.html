@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <link rel="manifest" href="manifest.json">
+<link rel="manifest" href="manifest.json">
 <script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js');
@@ -986,7 +986,11 @@ async function verifyShopCode(code){
 }
 
 async function startShop(){
-  const nameInput = document.getElementById('shopNameInput').value.trim();
+  // Normalize to uppercase right here, at the moment of capture — this makes
+  // "arvind kirana", "Arvind Kirana", and "ARVIND KIRANA" the exact same
+  // shop everywhere from this point on (display, storage, comparisons),
+  // rather than three different-looking entries that happen to be related.
+  const nameInput = document.getElementById('shopNameInput').value.trim().toUpperCase();
   if(!nameInput) return;
   const noteEl = document.getElementById('loginNote');
   const codeInput = document.getElementById('shopCodeInput');
@@ -1047,7 +1051,11 @@ async function startShop(){
   btn.disabled = false;
 
   if(result && result.ok){
-    shopName = nameInput;
+    // Adopt the server's canonical name rather than trusting exactly what was
+    // typed — this is what makes the shop name fully case/spacing-insensitive:
+    // no matter how the shopkeeper typed it, as long as the CODE matches, the
+    // one true registered name (uppercased) is what gets used from here on.
+    shopName = (result.name || nameInput).trim().toUpperCase();
     items = [];
     sheetUrl = result.sheetUrl || '';
     locked = false;
@@ -1176,7 +1184,7 @@ async function pullFromSheet(showStatus, retry){
       return;
     }
 
-    items = data.items.map(it => ({
+    const freshItems = data.items.map(it => ({
       aliases: Array.isArray(it.aliases) ? it.aliases : [],
       name: it.name || 'Unnamed item',
       type: ['weight','volume','packet'].includes(it.type) ? it.type : 'weight',
@@ -1184,16 +1192,29 @@ async function pullFromSheet(showStatus, retry){
       stock: Number(it.stock) || 0,
       favorite: !!it.favorite
     }));
+
+    // Skip the expensive re-render entirely if nothing actually changed.
+    // With a large catalog (hundreds or thousands of products), rebuilding
+    // the whole product table on every 15-second poll — even when nothing
+    // changed, which is the vast majority of the time — is what makes the
+    // app feel slow, not the network request itself. This check makes a
+    // no-change poll effectively free.
+    const changed = JSON.stringify(freshItems) !== JSON.stringify(items);
+    items = freshItems;
+
     if(typeof data.locked === 'boolean') sheetLockedValue = data.locked;
     // if the field is missing entirely (old Apps Script not yet redeployed
     // with lock support), leave sheetLockedValue exactly as it was — never
     // assume unlocked just because the sheet didn't say either way
-    renderRates();
-    renderFavStrip();
-    renderBill();
+
+    if(changed){
+      renderRates();
+      renderFavStrip();
+      renderBill();
+    }
     scheduleSaveLocalOnly();
     recomputeLockState();
-    if(showStatus) setSheetStatus(`Loaded ${items.length} items from your sheet.`, 'ok');
+    if(showStatus) setSheetStatus(changed ? `Loaded ${items.length} items from your sheet.` : `Already up to date (${items.length} items).`, 'ok');
   } catch(err){
     // network hiccup or unreachable sheet — the existing local catalog (from
     // localStorage) is left completely untouched, nothing gets cleared
@@ -1267,8 +1288,17 @@ document.getElementById('connectSheetBtn').addEventListener('click', async ()=>{
   }
 });
 
-document.getElementById('syncSheetBtn').addEventListener('click', ()=>{
-  pullFromSheet(true);
+document.getElementById('syncSheetBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('syncSheetBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Pulling…';
+  try{
+    await pullFromSheet(true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
 });
 
 document.getElementById('lockedCheckAgainBtn').addEventListener('click', async ()=>{
@@ -2070,6 +2100,13 @@ async function resolveSheetUrlFromRegistry(){
   try{
     const response = await fetch(REGISTRY_ENDPOINT.replace(/\/?$/, '/') + 'shop?code=' + encodeURIComponent(shopCode));
     const data = await response.json();
+    if(data.valid === false){
+      // this code no longer matches anything — either the shop was deleted,
+      // or (more likely if it still shows up elsewhere) the admin
+      // regenerated the code. Either way, this device's access is over.
+      handleShopCodeInvalidated();
+      return;
+    }
     if(data.removed){
       handleShopRemovedByAdmin();
       return;
@@ -2086,11 +2123,12 @@ async function resolveSheetUrlFromRegistry(){
   }
 }
 
-// Called when the registry says this shop was deleted from the admin
-// dashboard. Logs the shopkeeper out and wipes everything connected to this
-// shop from this device — items, sheet link, and lock status — so nothing
-// stale is left behind if the same name is ever used again.
-function handleShopRemovedByAdmin(){
+// Shared logic for anything that should fully disconnect this device from a
+// shop and force a fresh login: the shop being deleted, or its code being
+// regenerated. Wipes everything local — items, sheet link, code, lock state
+// — so nothing stale lingers, and drops back to the login screen with a
+// message explaining why.
+function forceDisconnectShop(message){
   clearInterval(sheetPollTimer);
   stopFirebaseLockListener();
   try{
@@ -2110,9 +2148,22 @@ function handleShopRemovedByAdmin(){
   document.getElementById('appRoot').style.display = 'none';
   document.getElementById('loginOverlay').style.display = 'flex';
   document.getElementById('shopNameInput').value = '';
-  document.getElementById('loginNote').textContent = 'This shop was removed by your service provider. Contact them, or start again with a shop name.';
+  document.getElementById('loginNote').textContent = message;
   resetLoginForm();
   populateKnownShopsDropdown();
+}
+
+// Called when the registry says this shop was deleted from the admin dashboard.
+function handleShopRemovedByAdmin(){
+  forceDisconnectShop('This shop was removed by your service provider. Contact them, or start again with a shop name.');
+}
+
+// Called when the registry says this device's code no longer matches any
+// shop — meaning the admin regenerated the code. The old code is dead the
+// moment this is detected: local data is wiped and the sheet link is
+// dropped, so nothing keeps working off the stale code in the background.
+function handleShopCodeInvalidated(){
+  forceDisconnectShop('Your shop\'s secret code was reset by your service provider. Enter the new code to reconnect.');
 }
 
 async function readParchaImage(base64, mediaType){
