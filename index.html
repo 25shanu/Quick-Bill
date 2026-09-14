@@ -895,6 +895,15 @@ document.addEventListener('click', (e)=>{
 populateKnownShopsDropdown();
 
 let sheetPollTimer = null;
+let consecutiveFailures = 0;
+const BASE_POLL_INTERVAL = 60 * 1000;   // 60s base — Firebase already handles instant lock/unlock, so this only needs to catch catalog changes, link updates, and code resets at a reasonable pace, without hammering Apps Script's daily quota
+const MAX_POLL_INTERVAL = 10 * 60 * 1000; // back off up to 10 minutes between checks if the sheet keeps failing (e.g. Apps Script quota temporarily exhausted), so a struggling sheet isn't hit even harder while it recovers
+
+function scheduleNextPoll(){
+  clearTimeout(sheetPollTimer);
+  const delay = Math.min(BASE_POLL_INTERVAL * Math.pow(2, consecutiveFailures), MAX_POLL_INTERVAL);
+  sheetPollTimer = setTimeout(runSyncCycle, delay);
+}
 
 function enterApp(){
   document.getElementById('shopNameDisplay').textContent = shopName;
@@ -916,20 +925,23 @@ function enterApp(){
   // away — this is what makes admin dashboard edits, including a brand new
   // link being set for the first time, show up here without anyone needing
   // to remember to tap "Pull latest"
-  clearInterval(sheetPollTimer);
+  clearTimeout(sheetPollTimer);
+  consecutiveFailures = 0;
   runSyncCycle();
-  // keep checking regularly so a lock/unlock or a newly-set link from the
-  // admin dashboard is picked up quickly without needing a manual refresh —
-  // 15s is fast enough to feel near-instant while staying well within quotas
-  sheetPollTimer = setInterval(runSyncCycle, 15 * 1000);
 }
 
 // One full check-in cycle: first see if the provider has set/changed this
-// shop's sheet link in the shared registry, then pull the latest catalog
-// and lock status from whatever link is currently connected.
+// shop's sheet link (or invalidated this device's code) in the shared
+// registry, then pull the latest catalog and lock status from whatever link
+// is currently connected. Always reschedules itself at the end, backing off
+// automatically if things are failing rather than hammering a struggling sheet.
 async function runSyncCycle(){
   await resolveSheetUrlFromRegistry();
-  if(sheetUrl) pullFromSheet(false);
+  if(sheetUrl){
+    await pullFromSheet(false);
+  } else {
+    scheduleNextPoll();
+  }
 }
 
 // shows the blocking "Payment Not Done" screen in place of the app, or hides
@@ -1097,7 +1109,7 @@ async function startShop(){
 
 document.getElementById('switchShopBtn').addEventListener('click', ()=>{
   scheduleSave();
-  clearInterval(sheetPollTimer);
+  clearTimeout(sheetPollTimer);
   stopFirebaseLockListener();
   shopName = '';
   sheetUrl = '';
@@ -1171,8 +1183,25 @@ async function pullFromSheet(showStatus, retry){
   if(showStatus) setSheetStatus('Pulling latest from your sheet…');
   try{
     const response = await fetch(sheetUrl);
-    const data = await response.json();
+    const rawText = await response.text();
+
+    let data;
+    try{
+      data = JSON.parse(rawText);
+    } catch(parseErr){
+      // Google Apps Script returns an HTML page instead of JSON when it's
+      // rate-limited or temporarily out of quota for the day — this is NOT
+      // a data problem. Nothing local gets touched; we just back off and
+      // try again shortly, with a message that actually explains what's
+      // going on instead of a raw "Unexpected token '<'" parse error.
+      consecutiveFailures++;
+      if(showStatus) setSheetStatus("Google's servers are temporarily busy or rate-limited — your data is safe and untouched. This usually clears up within a few minutes.", 'err');
+      scheduleNextPoll();
+      return;
+    }
+
     if(!Array.isArray(data.items)) throw new Error('Unexpected response from the sheet.');
+    consecutiveFailures = 0;
 
     // Safety net: the sheet is briefly empty for a fraction of a second while
     // the admin dashboard saves changes (it clears the sheet, then rewrites it).
@@ -1195,10 +1224,10 @@ async function pullFromSheet(showStatus, retry){
 
     // Skip the expensive re-render entirely if nothing actually changed.
     // With a large catalog (hundreds or thousands of products), rebuilding
-    // the whole product table on every 15-second poll — even when nothing
-    // changed, which is the vast majority of the time — is what makes the
-    // app feel slow, not the network request itself. This check makes a
-    // no-change poll effectively free.
+    // the whole product table on every poll — even when nothing changed,
+    // which is the vast majority of the time — is what makes the app feel
+    // slow, not the network request itself. This check makes a no-change
+    // poll effectively free.
     const changed = JSON.stringify(freshItems) !== JSON.stringify(items);
     items = freshItems;
 
@@ -1215,10 +1244,13 @@ async function pullFromSheet(showStatus, retry){
     scheduleSaveLocalOnly();
     recomputeLockState();
     if(showStatus) setSheetStatus(changed ? `Loaded ${items.length} items from your sheet.` : `Already up to date (${items.length} items).`, 'ok');
+    scheduleNextPoll();
   } catch(err){
     // network hiccup or unreachable sheet — the existing local catalog (from
     // localStorage) is left completely untouched, nothing gets cleared
-    setSheetStatus("Couldn't reach the sheet (" + err.message + "). Check the link and try again.", 'err');
+    consecutiveFailures++;
+    setSheetStatus("Couldn't reach the sheet (" + err.message + "). Your data is safe — nothing was changed.", 'err');
+    scheduleNextPoll();
   }
 }
 
@@ -2129,7 +2161,7 @@ async function resolveSheetUrlFromRegistry(){
 // — so nothing stale lingers, and drops back to the login screen with a
 // message explaining why.
 function forceDisconnectShop(message){
-  clearInterval(sheetPollTimer);
+  clearTimeout(sheetPollTimer);
   stopFirebaseLockListener();
   try{
     localStorage.removeItem(shopKey(shopName));
