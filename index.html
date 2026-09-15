@@ -54,7 +54,7 @@
     display:inline-block;
   }
   .sub{color:var(--muted); font-size:14.5px; margin-bottom:18px;}
-  .grid{display:grid; grid-template-columns:1.3fr 1fr; gap:22px; width:100%; align-items:start;}
+  .grid{display:grid; grid-template-columns:1.3fr 1fr; gap:22px; width:100%;}
   @media (max-width:760px){ .grid{grid-template-columns:1fr;} }
   .panel{
     background:var(--paper); border:1px solid var(--line); border-radius:14px;
@@ -123,7 +123,12 @@
   td{padding:11px 7px; border-bottom:1px solid var(--paper2); vertical-align:middle;}
   td.num, th.num{text-align:right;}
 
-  .rate-panel-scroll{max-height:480px; overflow-y:auto; overflow-x:auto; width:100%; -webkit-overflow-scrolling:touch;}
+  .rate-panel-scroll{overflow-y:auto; overflow-x:auto; width:100%; -webkit-overflow-scrolling:touch; flex:1 1 auto; min-height:0;}
+  .rates-col{display:flex; flex-direction:column; min-height:480px;}
+  @media (max-width:760px){
+    .rates-col{display:block;}
+    .rates-col .rate-panel-scroll{flex:none; max-height:480px; min-height:0;}
+  }
 
   .sheet-connect{margin-bottom:12px;}
   .sheet-connect-row{display:flex; gap:8px;}
@@ -521,7 +526,7 @@
       <div class="date" id="dateLine"></div>
     </div>
 
-    <div class="panel">
+    <div class="panel rates-col">
       <h2>Today's Rates and Stock</h2>
       <div class="hint" style="margin:0 0 8px;">Prices and stock are set and updated by your service provider — you'll see changes here once they update it. Stock also drops automatically as items get billed. Tap ☆ to mark a favourite for quick access.</div>
 
