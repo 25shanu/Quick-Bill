@@ -54,7 +54,7 @@
     display:inline-block;
   }
   .sub{color:var(--muted); font-size:14.5px; margin-bottom:18px;}
-  .grid{display:grid; grid-template-columns:1.3fr 1fr; gap:22px; width:100%;}
+  .grid{display:grid; grid-template-columns:1.3fr 1fr; gap:22px; width:100%; align-items:start;}
   @media (max-width:760px){ .grid{grid-template-columns:1fr;} }
   .panel{
     background:var(--paper); border:1px solid var(--line); border-radius:14px;
@@ -1131,6 +1131,20 @@ document.getElementById('switchShopBtn').addEventListener('click', ()=>{
 // close to real-time in practice, force an immediate check the moment the
 // shopkeeper actually comes back to this tab/app — covers the common case of
 // someone locking their phone or switching apps and then returning.
+// On mobile, the on-screen keyboard can pop up and cover whatever input was
+// just tapped, leaving the shopkeeper to manually scroll to see what they're
+// typing. This nudges the page to bring the focused field into view shortly
+// after focus — enough delay for the keyboard's own opening animation to
+// finish first, so the scroll lands in the right place rather than fighting it.
+document.addEventListener('focusin', (e)=>{
+  const el = e.target;
+  if(el.matches && el.matches('input, select, textarea')){
+    setTimeout(()=>{
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 300);
+  }
+});
+
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState === 'visible' && shopName) runSyncCycle();
 });
