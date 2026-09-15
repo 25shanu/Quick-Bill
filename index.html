@@ -54,7 +54,7 @@
     display:inline-block;
   }
   .sub{color:var(--muted); font-size:14.5px; margin-bottom:18px;}
-  .grid{display:grid; grid-template-columns:1.3fr 1fr; gap:22px; width:100%;}
+  .grid{display:grid; grid-template-columns:1.3fr 1fr; gap:22px; width:100%; align-items:start;}
   @media (max-width:760px){ .grid{grid-template-columns:1fr;} }
   .panel{
     background:var(--paper); border:1px solid var(--line); border-radius:14px;
@@ -123,11 +123,9 @@
   td{padding:11px 7px; border-bottom:1px solid var(--paper2); vertical-align:middle;}
   td.num, th.num{text-align:right;}
 
-  .rate-panel-scroll{overflow-y:auto; overflow-x:auto; width:100%; -webkit-overflow-scrolling:touch; flex:1 1 auto; min-height:0;}
-  .rates-col{display:flex; flex-direction:column; min-height:480px;}
+  .rate-panel-scroll{overflow-y:auto; overflow-x:auto; width:100%; -webkit-overflow-scrolling:touch; height:70vh;}
   @media (max-width:760px){
-    .rates-col{display:block;}
-    .rates-col .rate-panel-scroll{flex:none; max-height:480px; min-height:0;}
+    .rate-panel-scroll{height:60vh;}
   }
 
   .sheet-connect{margin-bottom:12px;}
@@ -293,7 +291,7 @@
     background:#ffffff; border:1.5px solid var(--line); border-radius:10px;
     padding:13px 16px; cursor:pointer; transition:border-color 0.15s, background 0.15s;
   }
-  .known-shops-trigger:hover{border-color:var(--accent);}
+  .known-shops-trigger:hover{border-color:var(--accent); background:#ffffff; color:var(--accent-dark);}
   .known-shops.open .known-shops-trigger{background:#ffffff; border-color:var(--accent);}
   .known-shops-trigger svg{flex-shrink:0; transition:transform 0.15s; color:var(--accent);}
   .known-shops.open .known-shops-trigger svg{transform:rotate(180deg);}
