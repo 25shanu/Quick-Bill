@@ -46,7 +46,7 @@
     font-size:13.5px; color:var(--muted); text-decoration:none; cursor:pointer; background:var(--paper);
     border:1px solid var(--line); padding:6px 12px; border-radius:20px; font-family:inherit; font-weight:600;
   }
-  .switch-shop:hover{border-color:var(--accent); color:var(--accent-dark);}
+  .switch-shop:hover{border-color:var(--accent); color:var(--accent-dark); background:var(--paper);}
   h1{
     font-family:'Poppins', 'Inter', sans-serif;
     font-size:30px; font-weight:700; letter-spacing:0.2px; color:var(--ink);
@@ -935,15 +935,42 @@ function enterApp(){
 
 // One full check-in cycle: first see if the provider has set/changed this
 // shop's sheet link (or invalidated this device's code) in the shared
-// registry, then pull the latest catalog and lock status from whatever link
-// is currently connected. Always reschedules itself at the end, backing off
-// automatically if things are failing rather than hammering a struggling sheet.
+// registry, then check in as this specific device (durable lock/logout
+// fallback, and keeps "last seen" current for the admin dashboard), then
+// pull the latest catalog and lock status from whatever link is currently
+// connected. Always reschedules itself at the end, backing off automatically
+// if things are failing rather than hammering a struggling sheet.
 async function runSyncCycle(){
   await resolveSheetUrlFromRegistry();
+  await deviceCheckin();
   if(sheetUrl){
     await pullFromSheet(false);
   } else {
     scheduleNextPoll();
+  }
+}
+
+// Durable, non-instant fallback for per-device lock/logout — in case
+// Firebase is briefly unreachable or misconfigured, this still gets the
+// same result within one poll cycle instead of never at all.
+async function deviceCheckin(){
+  if(!REGISTRY_ENDPOINT || REGISTRY_ENDPOINT.startsWith('PASTE_') || !shopCode) return;
+  try{
+    const response = await fetch(REGISTRY_ENDPOINT.replace(/\/?$/, '/') + 'device-checkin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: shopCode, deviceId: getOrCreateDeviceId(), deviceName: getDeviceName() })
+    });
+    const data = await response.json();
+    if(data.found === false) return; // shop or this device's record isn't there — nothing to act on yet
+    if(data.deviceRevoked){
+      handleDeviceLoggedOutByAdmin();
+      return;
+    }
+    deviceLockedValue = !!data.deviceLocked;
+    recomputeLockState();
+  } catch(err){
+    // stay quiet — Firebase is the primary channel for this, this is just a backup
   }
 }
 
@@ -986,13 +1013,53 @@ function resetLoginForm(){
   awaitingCodeForName = null;
 }
 
+// Every device gets its own persistent, random ID the first time it's
+// needed — this is what lets the admin see and control individual devices
+// (lock just one, log just one out) separately from the shop's code itself.
+const DEVICE_ID_KEY = 'ration-shop-device-id';
+const DEVICE_NAME_KEY = 'ration-shop-device-name';
+
+function getOrCreateDeviceId(){
+  let id = null;
+  try{ id = localStorage.getItem(DEVICE_ID_KEY); } catch(err){}
+  if(!id){
+    id = 'dev_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    try{ localStorage.setItem(DEVICE_ID_KEY, id); } catch(err){}
+  }
+  return id;
+}
+
+// Browsers don't expose a real, friendly device name (like "Ramesh's Phone")
+// to websites — this is a reasonable best-effort guess from the browser's
+// own user-agent string, used as a starting suggestion when asking the
+// shopkeeper to name their device.
+function guessDeviceName(){
+  const ua = navigator.userAgent || '';
+  if(/iPhone/i.test(ua)) return 'iPhone';
+  if(/iPad/i.test(ua)) return 'iPad';
+  if(/Android/i.test(ua)) return 'Android Phone';
+  if(/Macintosh/i.test(ua)) return 'Mac';
+  if(/Windows/i.test(ua)) return 'Windows PC';
+  return 'Device';
+}
+
+function getDeviceName(){
+  let name = null;
+  try{ name = localStorage.getItem(DEVICE_NAME_KEY); } catch(err){}
+  return name || guessDeviceName();
+}
+
+function setDeviceName(name){
+  try{ localStorage.setItem(DEVICE_NAME_KEY, name); } catch(err){}
+}
+
 async function verifyShopCode(code){
   if(!REGISTRY_ENDPOINT || REGISTRY_ENDPOINT.startsWith('PASTE_')) return { ok: false };
   try{
     const response = await fetch(REGISTRY_ENDPOINT.replace(/\/?$/, '/') + 'verify-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code })
+      body: JSON.stringify({ code, deviceId: getOrCreateDeviceId(), deviceName: getDeviceName() })
     });
     return await response.json();
   } catch(err){
@@ -1081,6 +1148,17 @@ async function startShop(){
       localStorage.setItem(CURRENT_SHOP_KEY, shopName);
       localStorage.setItem(LAST_USED_SHOP_KEY, shopName);
     } catch(err){}
+    // Ask once per device what to call it, so your admin can tell devices
+    // apart later (e.g. "Front counter phone" vs "Ramesh's phone"). Browsers
+    // don't expose a real device name to websites, so this is the practical
+    // alternative — skipping it just falls back to a guess like "Android Phone".
+    let existingDeviceName = null;
+    try{ existingDeviceName = localStorage.getItem(DEVICE_NAME_KEY); } catch(err){}
+    if(!existingDeviceName){
+      const suggested = guessDeviceName();
+      const chosen = prompt("Name this device so your provider can recognize it later (e.g. \"Front counter phone\"):", suggested);
+      setDeviceName((chosen && chosen.trim()) || suggested);
+    }
     resetLoginForm();
     enterApp();
   } else {
@@ -2082,16 +2160,21 @@ function fbShopKey(code){
 
 let fbApp = null;
 let fbLockRef = null;
-let fbLockedValue = null;   // what Firebase's real-time listener last said (null = not known yet)
-let sheetLockedValue = false; // what the sheet's own Apps Script last said, via normal polling
+let fbDeviceLockRef = null;
+let fbDeviceRevokedRef = null;
+let fbLockedValue = null;       // shop-wide lock, from Firebase (null = not known yet)
+let fbDeviceLockedValue = null; // THIS device's own lock, from Firebase (null = not known yet)
+let sheetLockedValue = false;   // what the sheet's own Apps Script last said, via normal polling
+let deviceLockedValue = false;  // this device's lock status from the durable registry check-in
 
 function firebaseConfigured(){
   return FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.startsWith('PASTE_')
       && FIREBASE_CONFIG.databaseURL && !FIREBASE_CONFIG.databaseURL.startsWith('PASTE_');
 }
 
-// Subscribes to this shop's lock value in Firebase, so any change the admin
-// makes reaches this device within about a second — no polling wait at all.
+// Subscribes to both the whole shop's lock value AND this specific device's
+// own lock/logout values in Firebase, so either kind of action from the
+// admin reaches this device within about a second — no polling wait at all.
 // Only runs once this shop has an actual verified code — without one there's
 // nothing safe to key Firebase on (falling back to the name would reopen the
 // exact duplicate-name collision this whole system was redesigned to avoid).
@@ -2102,10 +2185,29 @@ function startFirebaseLockListener(){
       fbApp = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(FIREBASE_CONFIG);
     }
     if(fbLockRef) fbLockRef.off();
-    fbLockRef = firebase.database().ref('shops/' + fbShopKey(shopCode) + '/locked');
+    if(fbDeviceLockRef) fbDeviceLockRef.off();
+    if(fbDeviceRevokedRef) fbDeviceRevokedRef.off();
+
+    const shopBase = 'shops/' + fbShopKey(shopCode);
+    const deviceId = getOrCreateDeviceId();
+
+    fbLockRef = firebase.database().ref(shopBase + '/locked');
     fbLockRef.on('value', (snapshot)=>{
       fbLockedValue = snapshot.val() === true;
       recomputeLockState();
+    });
+
+    fbDeviceLockRef = firebase.database().ref(shopBase + '/devices/' + deviceId + '/locked');
+    fbDeviceLockRef.on('value', (snapshot)=>{
+      fbDeviceLockedValue = snapshot.val() === true;
+      recomputeLockState();
+    });
+
+    fbDeviceRevokedRef = firebase.database().ref(shopBase + '/devices/' + deviceId + '/revoked');
+    fbDeviceRevokedRef.on('value', (snapshot)=>{
+      if(snapshot.val() === true){
+        handleDeviceLoggedOutByAdmin();
+      }
     });
   } catch(err){
     // Firebase not reachable or misconfigured — the app still works fine off
@@ -2115,16 +2217,31 @@ function startFirebaseLockListener(){
 
 function stopFirebaseLockListener(){
   if(fbLockRef) fbLockRef.off();
+  if(fbDeviceLockRef) fbDeviceLockRef.off();
+  if(fbDeviceRevokedRef) fbDeviceRevokedRef.off();
   fbLockRef = null;
+  fbDeviceLockRef = null;
+  fbDeviceRevokedRef = null;
   fbLockedValue = null;
+  fbDeviceLockedValue = null;
 }
 
-// Combines both sources: Firebase (instant) and the sheet's own record
-// (durable fallback). Locked wins if EITHER source says locked, so a
-// temporary Firebase hiccup can never accidentally unlock a shop early.
+// Combines every source: Firebase shop-wide lock, Firebase per-device lock,
+// and the sheet's own durable record (both shop-wide and per-device).
+// Locked wins if ANY source says locked, so a temporary hiccup in one
+// channel can never accidentally unlock a shop or device early.
 function recomputeLockState(){
-  locked = !!fbLockedValue || !!sheetLockedValue;
+  locked = !!fbLockedValue || !!fbDeviceLockedValue || !!sheetLockedValue || !!deviceLockedValue;
   applyLockState();
+}
+
+// Called when this specific device is logged out by the admin (not the
+// whole shop's code being invalidated — other devices keep working fine).
+// This device alone drops back to the login screen and needs the code
+// entered again, generating a fresh device identity when it reconnects.
+function handleDeviceLoggedOutByAdmin(){
+  try{ localStorage.removeItem(DEVICE_ID_KEY); } catch(err){} // retire this device identity entirely
+  forceDisconnectShop('This device was logged out by your service provider. Enter the code again to reconnect.');
 }
 
 // Fire-and-forget: tell the shared registry a new shop name just appeared,
@@ -2191,6 +2308,7 @@ function forceDisconnectShop(message){
   sheetUrl = '';
   locked = false;
   sheetLockedValue = false;
+  deviceLockedValue = false;
   shopCode = null;
   items = [];
   document.getElementById('lockedOverlay').style.display = 'none';
