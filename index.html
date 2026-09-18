@@ -486,8 +486,10 @@
           <input id="entry" type="text" placeholder="Type an item name, e.g. Maida or Maggi" autocomplete="off">
           <div class="suggest-box" id="suggestBox" style="display:none;"></div>
         </div>
-        <button class="ghost scan-btn" id="scanBtn" title="Scan a handwritten list">📷 Scan parcha</button>
-        <input type="file" id="scanFile" accept="image/*" style="display:none;">
+        <button class="ghost scan-btn" id="scanCameraBtn" title="Take a photo of a handwritten list">📷 Take Photo</button>
+        <button class="ghost scan-btn" id="scanGalleryBtn" title="Choose an existing photo, e.g. one received on WhatsApp">🖼️ Upload Photo</button>
+        <input type="file" id="scanFileCamera" accept="image/*" capture="environment" style="display:none;">
+        <input type="file" id="scanFileGallery" accept="image/*" style="display:none;">
       </div>
       <div class="hint">Search box clears itself after you pick an item — just keep typing the next one, or snap a photo of a handwritten list instead.</div>
       <div class="fav-strip" id="favStrip"></div>
@@ -2415,10 +2417,18 @@ async function handleScanFile(file){
     if(closeBtn) closeBtn.addEventListener('click', ()=>{ statusEl.style.display = 'none'; });
   }
 }
-document.getElementById('scanBtn').addEventListener('click', ()=>{
-  document.getElementById('scanFile').click();
+document.getElementById('scanCameraBtn').addEventListener('click', ()=>{
+  document.getElementById('scanFileCamera').click();
 });
-document.getElementById('scanFile').addEventListener('change', (e)=>{
+document.getElementById('scanGalleryBtn').addEventListener('click', ()=>{
+  document.getElementById('scanFileGallery').click();
+});
+document.getElementById('scanFileCamera').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(file) handleScanFile(file);
+  e.target.value = '';
+});
+document.getElementById('scanFileGallery').addEventListener('change', (e)=>{
   const file = e.target.files[0];
   if(file) handleScanFile(file);
   e.target.value = '';
