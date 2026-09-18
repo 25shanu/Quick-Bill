@@ -487,7 +487,7 @@
           <div class="suggest-box" id="suggestBox" style="display:none;"></div>
         </div>
         <button class="ghost scan-btn" id="scanBtn" title="Scan a handwritten list">📷 Scan parcha</button>
-        <input type="file" id="scanFile" accept="image/*" capture="environment" style="display:none;">
+        <input type="file" id="scanFile" accept="image/*" style="display:none;">
       </div>
       <div class="hint">Search box clears itself after you pick an item — just keep typing the next one, or snap a photo of a handwritten list instead.</div>
       <div class="fav-strip" id="favStrip"></div>
@@ -1861,7 +1861,7 @@ function showSuggestions(){
   if(!q){ suggestBox.style.display = 'none'; currentMatches = []; return; }
   currentMatches = items
     .map((it, idx)=>({it, idx}))
-    .filter(({it}) => it.aliases.some(a => a.startsWith(q)) || it.name.toLowerCase().startsWith(q))
+    .filter(({it}) => it.aliases.some(a => a.includes(q)) || it.name.toLowerCase().includes(q))
     .slice(0,8);
   if(currentMatches.length === 0){ suggestBox.style.display = 'none'; return; }
   renderSuggestionBox();
@@ -1920,7 +1920,7 @@ entryInput.addEventListener('keydown', (e)=>{
     }
     const q = entryInput.value.trim().toLowerCase();
     if(!q) return;
-    const match = items.findIndex(it => it.aliases.some(a => a.startsWith(q)) || it.name.toLowerCase().startsWith(q));
+    const match = items.findIndex(it => it.aliases.some(a => a.includes(q)) || it.name.toLowerCase().includes(q));
     if(match !== -1){
       selectSuggestion(match);
     }
@@ -2075,9 +2075,32 @@ document.getElementById('saveImageBtn').addEventListener('click', async ()=>{
 function matchItemLoosely(text){
   const t = (text||'').toLowerCase().trim();
   if(!t) return -1;
-  return items.findIndex(it =>
-    it.aliases.some(a => t.includes(a) || a.includes(t)) || it.name.toLowerCase().includes(t)
-  );
+
+  // First choice: an EXACT match on the item's name or one of its aliases —
+  // e.g. the parcha just says "chini" and an item's alias is literally
+  // "chini". This is the strongest, least ambiguous signal available.
+  const exactMatches = items
+    .map((it, idx)=>({it, idx}))
+    .filter(({it}) => it.name.toLowerCase() === t || it.aliases.some(a => a === t));
+  if(exactMatches.length > 0){
+    // If a plain generic term exactly matches more than one item (e.g. both
+    // a loose and a packaged version share the same simple alias), default
+    // to the loose one. A packet should only get picked when the parcha
+    // actually names its brand — which is what makes that OTHER item's
+    // match happen instead (see below).
+    const looseExact = exactMatches.find(({it}) => it.type !== 'packet');
+    return (looseExact || exactMatches[0]).idx;
+  }
+
+  // Fallback: partial/fuzzy match, for OCR text that isn't a clean exact
+  // word (slightly different spelling, extra words, etc). Same preference
+  // for loose over packet applies here too.
+  const partialMatches = items
+    .map((it, idx)=>({it, idx}))
+    .filter(({it}) => it.aliases.some(a => t.includes(a) || a.includes(t)) || it.name.toLowerCase().includes(t));
+  if(partialMatches.length === 0) return -1;
+  const loosePartial = partialMatches.find(({it}) => it.type !== 'packet');
+  return (loosePartial || partialMatches[0]).idx;
 }
 function normalizeUnitForItem(rawUnit, type){
   const u = (rawUnit||'').toLowerCase();
