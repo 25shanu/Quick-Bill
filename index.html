@@ -340,6 +340,47 @@
   .locked-card button{width:100%; padding:14px; font-size:15px;}
   .locked-note{font-size:12.5px; color:var(--muted); margin-top:16px; line-height:1.6;}
 
+  #cameraOverlay{
+    position:fixed; inset:0; background:#000; z-index:300;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #cameraVideo{
+    width:100%; height:100%; object-fit:cover; background:#000;
+  }
+  .camera-close{
+    position:absolute; top:16px; left:16px; width:40px; height:40px; border-radius:50%;
+    background:rgba(0,0,0,0.5); color:#fff; font-size:18px; padding:0; border:none;
+    display:flex; align-items:center; justify-content:center; z-index:2;
+  }
+  .camera-close:hover{background:rgba(0,0,0,0.7);}
+  .camera-controls{
+    position:absolute; bottom:0; left:0; right:0; z-index:2;
+    display:flex; align-items:center; justify-content:center; gap:0;
+    padding:24px 24px calc(24px + env(safe-area-inset-bottom, 0px));
+    background:linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0));
+  }
+  .camera-shutter{
+    width:72px; height:72px; border-radius:50%; background:#fff;
+    border:4px solid rgba(255,255,255,0.4); padding:0; margin:0 24px;
+    box-shadow:0 0 0 2px rgba(0,0,0,0.2);
+  }
+  .camera-shutter:hover{background:#f0f0f0;}
+  .camera-shutter:active{transform:scale(0.94);}
+  .camera-gallery-btn{
+    width:46px; height:46px; border-radius:12px; background:rgba(255,255,255,0.18);
+    border:1.5px solid rgba(255,255,255,0.6); font-size:20px; padding:0;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .camera-gallery-btn:hover{background:rgba(255,255,255,0.3);}
+  .camera-spacer{width:46px; height:46px;} /* balances the gallery button so the shutter stays centered */
+  .camera-hint{
+    position:absolute; top:16px; left:64px; right:16px; z-index:2;
+    color:#fff; font-size:12.5px; background:rgba(0,0,0,0.45); padding:8px 12px; border-radius:8px;
+  }
+  @media (max-width:480px){
+    .camera-hint{font-size:11.5px; top:64px; left:16px;}
+  }
+
   /* ---- responsive tightening for phones ---- */
   @media (max-width:600px){
     body{
@@ -467,6 +508,18 @@
   </div>
 </div>
 
+<div id="cameraOverlay" style="display:none;">
+  <video id="cameraVideo" autoplay playsinline muted></video>
+  <canvas id="cameraCanvas" style="display:none;"></canvas>
+  <button id="cameraCloseBtn" class="camera-close" title="Cancel">✕</button>
+  <div class="camera-controls">
+    <button id="cameraGalleryBtn" class="camera-gallery-btn" title="Upload from gallery instead">🖼️</button>
+    <button id="cameraShutterBtn" class="camera-shutter" title="Take photo"></button>
+    <span class="camera-spacer"></span>
+  </div>
+  <div class="camera-hint">Tap the gallery icon to upload a photo instead — handy for a list a customer sent you on WhatsApp</div>
+</div>
+
 <div id="appRoot" style="display:none;">
 <div class="wrap">
   <div class="topbar">
@@ -486,10 +539,9 @@
           <input id="entry" type="text" placeholder="Type an item name, e.g. Maida or Maggi" autocomplete="off">
           <div class="suggest-box" id="suggestBox" style="display:none;"></div>
         </div>
-        <button class="ghost scan-btn" id="scanCameraBtn" title="Take a photo of a handwritten list">📷 Take Photo</button>
-        <button class="ghost scan-btn" id="scanGalleryBtn" title="Choose an existing photo, e.g. one received on WhatsApp">🖼️ Upload Photo</button>
-        <input type="file" id="scanFileCamera" accept="image/*" capture="environment" style="display:none;">
+        <button class="ghost scan-btn" id="scanBtn" title="Scan a handwritten list">📷 Scan Parcha</button>
         <input type="file" id="scanFileGallery" accept="image/*" style="display:none;">
+        <input type="file" id="scanFileFallback" accept="image/*" capture="environment" style="display:none;">
       </div>
       <div class="hint">Search box clears itself after you pick an item — just keep typing the next one, or snap a photo of a handwritten list instead.</div>
       <div class="fav-strip" id="favStrip"></div>
@@ -2417,18 +2469,69 @@ async function handleScanFile(file){
     if(closeBtn) closeBtn.addEventListener('click', ()=>{ statusEl.style.display = 'none'; });
   }
 }
-document.getElementById('scanCameraBtn').addEventListener('click', ()=>{
-  document.getElementById('scanFileCamera').click();
-});
-document.getElementById('scanGalleryBtn').addEventListener('click', ()=>{
+// ---- custom in-page camera, so a single "Scan Parcha" button can offer
+// both a live camera view AND a gallery option inside it, like WhatsApp's
+// status camera does — a plain <input type=file> can't do this on its own,
+// since the OS controls its native camera screen completely.
+let cameraStream = null;
+
+async function openScanCamera(){
+  const overlay = document.getElementById('cameraOverlay');
+  const video = document.getElementById('cameraVideo');
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    // very old/unsupported browser — skip straight to the plain camera picker
+    document.getElementById('scanFileFallback').click();
+    return;
+  }
+  try{
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' },
+      audio: false
+    });
+    video.srcObject = cameraStream;
+    overlay.style.display = 'flex';
+  } catch(err){
+    // camera permission denied, no camera, or any other failure — fall back
+    // to the plain OS camera picker rather than leaving the shopkeeper stuck
+    document.getElementById('scanFileFallback').click();
+  }
+}
+
+function closeScanCamera(){
+  document.getElementById('cameraOverlay').style.display = 'none';
+  if(cameraStream){
+    cameraStream.getTracks().forEach(track => track.stop());
+    cameraStream = null;
+  }
+}
+
+function captureFromCamera(){
+  const video = document.getElementById('cameraVideo');
+  const canvas = document.getElementById('cameraCanvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.toBlob((blob)=>{
+    closeScanCamera();
+    if(blob){
+      handleScanFile(new File([blob], 'parcha.jpg', { type: 'image/jpeg' }));
+    }
+  }, 'image/jpeg', 0.92);
+}
+
+document.getElementById('scanBtn').addEventListener('click', openScanCamera);
+document.getElementById('cameraCloseBtn').addEventListener('click', closeScanCamera);
+document.getElementById('cameraShutterBtn').addEventListener('click', captureFromCamera);
+document.getElementById('cameraGalleryBtn').addEventListener('click', ()=>{
+  closeScanCamera();
   document.getElementById('scanFileGallery').click();
 });
-document.getElementById('scanFileCamera').addEventListener('change', (e)=>{
+document.getElementById('scanFileGallery').addEventListener('change', (e)=>{
   const file = e.target.files[0];
   if(file) handleScanFile(file);
   e.target.value = '';
 });
-document.getElementById('scanFileGallery').addEventListener('change', (e)=>{
+document.getElementById('scanFileFallback').addEventListener('change', (e)=>{
   const file = e.target.files[0];
   if(file) handleScanFile(file);
   e.target.value = '';
