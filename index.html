@@ -2458,6 +2458,17 @@ document.getElementById('scanFileGallery').addEventListener('change', (e)=>{
   if(file) handleScanFile(file);
   e.target.value = '';
 });
+
+// Lets the app open even with zero internet connection, instead of the
+// browser's own "No internet connection" error page — billing itself
+// already works entirely from data saved on this device.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{
+      // not supported or blocked — the app still works fully online as before
+    });
+  });
+}
 </script>
 </body>
 </html>
