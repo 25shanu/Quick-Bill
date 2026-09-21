@@ -89,6 +89,8 @@
 
   .entry-row{display:flex; gap:10px; align-items:flex-start;}
   .entry-wrap{position:relative; flex:1;}
+  .scan-btn-row{display:flex; gap:10px; margin-top:10px;}
+  .scan-btn-row .scan-btn{flex:1 1 0;}
   #entry{
     width:100%; font-family:inherit; font-size:17px;
     padding:14px 16px; border:1.5px solid var(--line); background:#fff;
@@ -357,7 +359,8 @@
 
     .entry-row{flex-wrap:wrap;}
     .entry-wrap{flex:1 1 100%;}
-    .scan-btn{flex:1 1 100%; text-align:center;}
+    .scan-btn-row{flex-direction:column;}
+    .scan-btn{text-align:center;}
     #entry{font-size:16px;} /* keeps iOS from auto-zooming on focus */
 
     .qtybox{flex-wrap:nowrap;}
@@ -460,8 +463,8 @@
         <path d="M8 10V7a4 4 0 0 1 8 0v3"/>
       </svg>
     </div>
-    <h1>Payment Not Done</h1>
-    <p>Billing is paused for <span id="lockedShopName" style="font-weight:700;"></span>. Please contact your service provider to clear the payment — the app will unlock automatically as soon as they update it.</p>
+    <h1 id="lockedHeading">Payment Not Done</h1>
+    <p id="lockedMessage">Billing is paused for <span id="lockedShopName" style="font-weight:700;"></span>. Please contact your service provider to clear the payment — the app will unlock automatically as soon as they update it.</p>
     <button id="lockedCheckAgainBtn">↻ Check Again</button>
     <div class="locked-note" id="lockedCheckStatus"></div>
   </div>
@@ -486,6 +489,8 @@
           <input id="entry" type="text" placeholder="Type an item name, e.g. Maida or Maggi" autocomplete="off">
           <div class="suggest-box" id="suggestBox" style="display:none;"></div>
         </div>
+      </div>
+      <div class="scan-btn-row">
         <button class="ghost scan-btn" id="scanCameraBtn" title="Take a photo of a handwritten list">📷 Take Photo</button>
         <button class="ghost scan-btn" id="scanGalleryBtn" title="Choose an existing photo, e.g. one received on WhatsApp">🖼️ Upload Photo</button>
         <input type="file" id="scanFileCamera" accept="image/*" capture="environment" style="display:none;">
@@ -792,6 +797,7 @@ function shopKey(name){ return 'shop:' + name.toLowerCase().trim(); }
 
 let sheetUrl = ''; // this shop's connected Google Sheet web app URL, if any
 let locked = false; // set by your service provider from the admin dashboard when payment isn't done
+let lockedBecauseOfDeviceOnly = false; // true when only THIS device is locked, not the whole shop — shown with different wording
 let shopCode = null; // the unique 4-digit code this shop was verified with — used for all registry lookups instead of the (possibly duplicated) shop name
 
 function loadShop(name){
@@ -912,7 +918,6 @@ function scheduleNextPoll(){
 
 function enterApp(){
   document.getElementById('shopNameDisplay').textContent = shopName;
-  document.getElementById('lockedShopName').textContent = shopName;
   document.title = shopName + ' — Quick Bill';
   document.getElementById('loginOverlay').style.display = 'none';
   document.getElementById('appRoot').style.display = 'block';
@@ -982,7 +987,16 @@ async function deviceCheckin(){
 function applyLockState(){
   const overlay = document.getElementById('lockedOverlay');
   const appRoot = document.getElementById('appRoot');
+  const heading = document.getElementById('lockedHeading');
+  const message = document.getElementById('lockedMessage');
   if(locked){
+    if(lockedBecauseOfDeviceOnly){
+      heading.textContent = 'Device Locked';
+      message.innerHTML = 'This application has been locked on this device by your service provider for <span style="font-weight:700;">' + shopName + '</span>. Other devices for this shop are not affected. Please contact your service provider.';
+    } else {
+      heading.textContent = 'Payment Not Done';
+      message.innerHTML = 'Billing is paused for <span style="font-weight:700;">' + shopName + '</span>. Please contact your service provider to clear the payment — the app will unlock automatically as soon as they update it.';
+    }
     overlay.style.display = 'flex';
     appRoot.style.display = 'none';
   } else {
@@ -2255,8 +2269,15 @@ function stopFirebaseLockListener(){
 // and the sheet's own durable record (both shop-wide and per-device).
 // Locked wins if ANY source says locked, so a temporary hiccup in one
 // channel can never accidentally unlock a shop or device early.
+// Also tracks WHY it's locked, so the overlay can show the right message —
+// a shop-wide lock is a payment issue, but a single-device lock is usually
+// something else entirely (e.g. this specific tablet shouldn't have access
+// anymore), so they shouldn't both say "Payment Not Done".
 function recomputeLockState(){
-  locked = !!fbLockedValue || !!fbDeviceLockedValue || !!sheetLockedValue || !!deviceLockedValue;
+  const shopWideLocked = !!fbLockedValue || !!sheetLockedValue;
+  const thisDeviceLocked = !!fbDeviceLockedValue || !!deviceLockedValue;
+  locked = shopWideLocked || thisDeviceLocked;
+  lockedBecauseOfDeviceOnly = thisDeviceLocked && !shopWideLocked;
   applyLockState();
 }
 
@@ -2265,7 +2286,11 @@ function recomputeLockState(){
 // This device alone drops back to the login screen and needs the code
 // entered again, generating a fresh device identity when it reconnects.
 function handleDeviceLoggedOutByAdmin(){
-  try{ localStorage.removeItem(DEVICE_ID_KEY); } catch(err){} // retire this device identity entirely
+  // Deliberately keep the same device identity (don't clear DEVICE_ID_KEY) —
+  // logging back in with the correct code should reactivate this exact
+  // device entry in the admin's list, not create a brand new one. The
+  // server-side /verify-code already clears the "revoked" flag when it sees
+  // this same deviceId again.
   forceDisconnectShop('This device was logged out by your service provider. Enter the code again to reconnect.');
 }
 
