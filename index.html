@@ -42,6 +42,14 @@
   .wrap{max-width:1080px; margin:0 auto; width:100%;}
   .topbar{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px;}
   .shop-name{font-size:18px; font-weight:700; letter-spacing:0.2px; color:var(--accent-dark);}
+  .topbar-actions{display:flex; align-items:center; gap:8px;}
+  .lang-toggle{
+    font-size:13.5px; color:var(--muted); cursor:pointer; background:var(--paper);
+    border:1px solid var(--line); padding:6px 12px; border-radius:20px; font-family:inherit; font-weight:600;
+  }
+  .lang-toggle:hover{border-color:var(--accent); color:var(--accent-dark); background:var(--paper);}
+  .lang-toggle.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .lang-toggle.active:hover{background:var(--accent-dark); color:#fff;}
   .switch-shop{
     font-size:13.5px; color:var(--muted); text-decoration:none; cursor:pointer; background:var(--paper);
     border:1px solid var(--line); padding:6px 12px; border-radius:20px; font-family:inherit; font-weight:600;
@@ -423,33 +431,33 @@
         <path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/>
       </svg>
     </div>
-    <h1>Quick Bill</h1>
-    <p>Enter your shop name to start. Your rates, stock, and favourites are saved under this name and come back exactly as you left them next time.</p>
+    <h1 data-i18n="appTitle">Quick Bill</h1>
+    <p data-i18n="loginIntro">Enter your shop name to start. Your rates, stock, and favourites are saved under this name and come back exactly as you left them next time.</p>
 
     <div class="known-shops" id="knownShopsWrap" style="display:none;">
       <button type="button" class="known-shops-trigger" id="knownShopsTrigger">
-        <span id="knownShopsTriggerLabel">Choose a connected shop</span>
+        <span id="knownShopsTriggerLabel" data-i18n="chooseConnectedShop">Choose a connected shop</span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="known-shops-panel" id="knownShopsPanel"></div>
     </div>
 
-    <input type="text" id="shopNameInput" placeholder="e.g. Sharma Kirana Store" autocomplete="off">
-    <input type="text" id="shopCodeInput" placeholder="4-digit code from your provider" autocomplete="off" inputmode="numeric" maxlength="4" style="display:none;">
-    <button id="startBtn">Start Billing</button>
+    <input type="text" id="shopNameInput" placeholder="e.g. Sharma Kirana Store" data-i18n-placeholder="shopNamePlaceholder" autocomplete="off">
+    <input type="text" id="shopCodeInput" placeholder="4-digit code from your provider" data-i18n-placeholder="shopCodePlaceholder" autocomplete="off" inputmode="numeric" maxlength="4" style="display:none;">
+    <button id="startBtn" data-i18n="startBilling">Start Billing</button>
     <div class="login-note" id="loginNote"></div>
     <div class="login-features">
       <div class="feat">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z"/><path d="M9 8h6M9 12h6"/></svg>
-        Fast Billing
+        <span data-i18n="featFast">Fast Billing</span>
       </div>
       <div class="feat">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-        Stock Tracking
+        <span data-i18n="featStock">Stock Tracking</span>
       </div>
       <div class="feat">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
-        Always Saved
+        <span data-i18n="featSaved">Always Saved</span>
       </div>
     </div>
   </div>
@@ -474,103 +482,106 @@
 <div class="wrap">
   <div class="topbar">
     <span class="shop-name" id="shopNameDisplay"></span>
-    <button class="switch-shop" id="switchShopBtn">Switch Shop</button>
+    <div class="topbar-actions">
+      <button class="lang-toggle" id="langToggleBtn" title="हिंदी में बदलें / Switch to Hindi">🌐 <span id="langToggleLabel">हिं</span></button>
+      <button class="switch-shop" id="switchShopBtn" data-i18n="switchShop">Switch Shop</button>
+    </div>
   </div>
-  <h1>Quick Bill</h1>
-  <div class="sub">Search an item, click it, adjust qty in the bill row. Rates stay fixed until you change them — stock updates as you bill, or edit it by hand any time. Everything you add is saved automatically.</div>
+  <h1 data-i18n="appTitle">Quick Bill</h1>
+  <div class="sub" data-i18n="appSub">Search an item, click it, adjust qty in the bill row. Rates stay fixed until you change them — stock updates as you bill, or edit it by hand any time. Everything you add is saved automatically.</div>
 
   <div class="tabs-row" id="tabsRow"></div>
 
   <div class="grid">
     <div class="panel">
-      <h2>New Bill</h2>
+      <h2 data-i18n="newBillHeading">New Bill</h2>
       <div class="entry-row">
         <div class="entry-wrap">
-          <input id="entry" type="text" placeholder="Type an item name, e.g. Maida or Maggi" autocomplete="off">
+          <input id="entry" type="text" placeholder="Type an item name, e.g. Maida or Maggi" data-i18n-placeholder="entryPlaceholder" autocomplete="off">
           <div class="suggest-box" id="suggestBox" style="display:none;"></div>
         </div>
       </div>
       <div class="scan-btn-row">
-        <button class="ghost scan-btn" id="scanCameraBtn" title="Take a photo of a handwritten list">📷 Take Photo</button>
-        <button class="ghost scan-btn" id="scanGalleryBtn" title="Choose an existing photo, e.g. one received on WhatsApp">🖼️ Upload Photo</button>
+        <button class="ghost scan-btn" id="scanCameraBtn" data-i18n="takePhoto" title="Take a photo of a handwritten list">📷 Take Photo</button>
+        <button class="ghost scan-btn" id="scanGalleryBtn" data-i18n="uploadPhoto" title="Choose an existing photo, e.g. one received on WhatsApp">🖼️ Upload Photo</button>
         <input type="file" id="scanFileCamera" accept="image/*" capture="environment" style="display:none;">
         <input type="file" id="scanFileGallery" accept="image/*" style="display:none;">
       </div>
-      <div class="hint">Search box clears itself after you pick an item — just keep typing the next one, or snap a photo of a handwritten list instead.</div>
+      <div class="hint" data-i18n="entryHint">Search box clears itself after you pick an item — just keep typing the next one, or snap a photo of a handwritten list instead.</div>
       <div class="fav-strip" id="favStrip"></div>
       <div id="scanStatus" class="scan-status" style="display:none;"></div>
 
       <div class="table-scroll">
         <table id="billTable">
-          <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th><th></th></tr></thead>
+          <thead><tr><th data-i18n="colItem">Item</th><th class="num" data-i18n="colQty">Qty</th><th class="num" data-i18n="colRate">Rate</th><th class="num" data-i18n="colAmount">Amount</th><th></th></tr></thead>
           <tbody id="billBody"></tbody>
         </table>
       </div>
-      <div class="empty-msg" id="emptyMsg">No items added yet — search above to start the bill.</div>
+      <div class="empty-msg" id="emptyMsg" data-i18n="emptyBillMsg">No items added yet — search above to start the bill.</div>
 
-      <div class="meta-line"><span>Items Billed</span><span id="itemCount">0</span></div>
-      <div class="total"><span>Total</span><span class="amt" id="totalAmt">₹0.00</span></div>
+      <div class="meta-line"><span data-i18n="itemsBilled">Items Billed</span><span id="itemCount">0</span></div>
+      <div class="total"><span data-i18n="total">Total</span><span class="amt" id="totalAmt">₹0.00</span></div>
 
       <div class="change-block">
         <div class="change-row">
-          <label for="cashReceived">Cash received</label>
+          <label for="cashReceived" data-i18n="cashReceived">Cash received</label>
           <input type="number" id="cashReceived" placeholder="e.g. 500" min="0" step="any">
         </div>
         <div class="change-row change-due">
-          <span>Change To Return</span>
+          <span data-i18n="changeToReturn">Change To Return</span>
           <span class="amt" id="changeAmt">₹0.00</span>
         </div>
         <div id="denomBreakdown" class="denom-grid"></div>
       </div>
 
       <div class="actions">
-        <button id="printBtn">Print Bill</button>
-        <button class="ghost" id="saveImageBtn">🖼️ Save As JPEG</button>
-        <button class="ghost" id="clearBtn">Clear Bill (Next Customer)</button>
+        <button id="printBtn" data-i18n="printBill">Print Bill</button>
+        <button class="ghost" id="saveImageBtn" data-i18n="saveAsJpeg">🖼️ Save As JPEG</button>
+        <button class="ghost" id="clearBtn" data-i18n="clearBill">Clear Bill (Next Customer)</button>
       </div>
       <div class="date" id="dateLine"></div>
     </div>
 
     <div class="panel rates-col">
-      <h2>Today's Rates and Stock</h2>
-      <div class="hint" style="margin:0 0 8px;">Prices and stock are set and updated by your service provider — you'll see changes here once they update it. Stock also drops automatically as items get billed. Tap ☆ to mark a favourite for quick access.</div>
+      <h2 data-i18n="ratesHeading">Today's Rates and Stock</h2>
+      <div class="hint" style="margin:0 0 8px;" data-i18n="ratesHint">Prices and stock are set and updated by your service provider — you'll see changes here once they update it. Stock also drops automatically as items get billed. Tap ☆ to mark a favourite for quick access.</div>
 
       <div class="sort-row">
-        <label for="sortMode">Sort By</label>
+        <label for="sortMode" data-i18n="sortByLabel">Sort By</label>
         <select id="sortMode">
-          <option value="alpha">Alphabetical (A–Z)</option>
-          <option value="newest">Newest Added First</option>
-          <option value="oldest">Oldest Added First</option>
+          <option value="alpha" data-i18n="sortAlpha">Alphabetical (A–Z)</option>
+          <option value="newest" data-i18n="sortNewest">Newest Added First</option>
+          <option value="oldest" data-i18n="sortOldest">Oldest Added First</option>
         </select>
       </div>
 
       <div class="rate-panel-scroll">
         <table>
-          <thead><tr><th></th><th>Item</th><th class="num">Rate</th><th class="num">Stock</th><th></th></tr></thead>
+          <thead><tr><th></th><th data-i18n="colItem">Item</th><th class="num" data-i18n="colRate">Rate</th><th class="num" data-i18n="colStock">Stock</th><th></th></tr></thead>
           <tbody id="rateTable"></tbody>
         </table>
       </div>
-      <div class="empty-msg" id="rateEmptyMsg" style="display:none;">No products yet — connect this shop's Google Sheet below to load its catalog.</div>
+      <div class="empty-msg" id="rateEmptyMsg" style="display:none;" data-i18n="emptyRateMsg">No products yet — connect this shop's Google Sheet below to load its catalog.</div>
     </div>
   </div>
 
   <div class="panel" style="margin-top:20px;">
-    <h2>Google Sheet Connection</h2>
-    <div class="hint" style="margin:0 0 10px;">Your service provider connects this shop's Google Sheet from their side — you don't need to do anything here. If it isn't connected yet, you can paste the link below to connect it yourself in the meantime.</div>
+    <h2 data-i18n="sheetConnHeading">Google Sheet Connection</h2>
+    <div class="hint" style="margin:0 0 10px;" data-i18n="sheetConnHint">Your service provider connects this shop's Google Sheet from their side — you don't need to do anything here. If it isn't connected yet, you can paste the link below to connect it yourself in the meantime.</div>
     <div class="sheet-connect">
       <div class="sheet-connect-row">
-        <input type="text" id="sheetUrlInput" placeholder="Paste your Google Sheet web app link here">
-        <button class="ghost" id="connectSheetBtn">Connect</button>
+        <input type="text" id="sheetUrlInput" placeholder="Paste your Google Sheet web app link here" data-i18n-placeholder="sheetUrlPlaceholder">
+        <button class="ghost" id="connectSheetBtn" data-i18n="connect">Connect</button>
       </div>
       <div class="sheet-status" id="sheetStatus"></div>
       <div class="sheet-btn-row">
-        <button class="ghost" id="syncSheetBtn" style="display:none;">↻ Pull Latest From Sheet</button>
+        <button class="ghost" id="syncSheetBtn" style="display:none;" data-i18n="pullLatest">↻ Pull Latest From Sheet</button>
       </div>
     </div>
   </div>
 
   <div class="app-footer">
-    Quick Bill · photo scanning is connected and managed by your service provider<br>
+    <span data-i18n="footerLine1">Quick Bill · photo scanning is connected and managed by your service provider</span><br>
     Designed, Developed &amp; Managed by <a href="https://dsharshit.framer.website/" target="_blank" rel="noopener">D S Harshit</a>
   </div>
 </div>
@@ -773,6 +784,123 @@ let items = [
   {aliases:["honey","शहद"], name:"Honey bottle", type:"volume", rate:250, stock:8, favorite:false},
 ];
 
+
+// ---- language (English / Hindi) ----
+// Covers the main screens a shopkeeper actually uses every day: login,
+// header, the New Bill panel, the rates panel, and the Sheet Connection
+// panel. Product names themselves are left exactly as they are — most
+// catalogs already show the product's name alongside its Hindi term in
+// brackets (e.g. "Maida (मैदा)"), and that stays exactly the same in either
+// language, since switching that would make items harder to find by search.
+const LANG_KEY = 'ration-shop-language';
+const TRANSLATIONS = {
+  en: {
+    switchShop: 'Switch Shop',
+    appTitle: 'Quick Bill',
+    appSub: 'Search an item, click it, adjust qty in the bill row. Rates stay fixed until you change them — stock updates as you bill, or edit it by hand any time. Everything you add is saved automatically.',
+    newBillHeading: 'New Bill',
+    entryPlaceholder: 'Type an item name, e.g. Maida or Maggi',
+    takePhoto: '📷 Take Photo',
+    uploadPhoto: '🖼️ Upload Photo',
+    entryHint: 'Search box clears itself after you pick an item — just keep typing the next one, or snap a photo of a handwritten list instead.',
+    colItem: 'Item', colQty: 'Qty', colRate: 'Rate', colAmount: 'Amount', colStock: 'Stock',
+    emptyBillMsg: 'No items added yet — search above to start the bill.',
+    itemsBilled: 'Items Billed',
+    total: 'Total',
+    cashReceived: 'Cash received',
+    changeToReturn: 'Change To Return',
+    printBill: 'Print Bill',
+    saveAsJpeg: '🖼️ Save As JPEG',
+    clearBill: 'Clear Bill (Next Customer)',
+    ratesHeading: "Today's Rates and Stock",
+    ratesHint: "Prices and stock are set and updated by your service provider — you'll see changes here once they update it. Stock also drops automatically as items get billed. Tap ☆ to mark a favourite for quick access.",
+    sortByLabel: 'Sort By',
+    sortAlpha: 'Alphabetical (A–Z)',
+    sortNewest: 'Newest Added First',
+    sortOldest: 'Oldest Added First',
+    emptyRateMsg: "No products yet — connect this shop's Google Sheet below to load its catalog.",
+    sheetConnHeading: 'Google Sheet Connection',
+    sheetConnHint: "Your service provider connects this shop's Google Sheet from their side — you don't need to do anything here. If it isn't connected yet, you can paste the link below to connect it yourself in the meantime.",
+    sheetUrlPlaceholder: 'Paste your Google Sheet web app link here',
+    connect: 'Connect',
+    pullLatest: '↻ Pull Latest From Sheet',
+    footerLine1: 'Quick Bill · photo scanning is connected and managed by your service provider',
+    loginIntro: 'Enter your shop name to start. Your rates, stock, and favourites are saved under this name and come back exactly as you left them next time.',
+    chooseConnectedShop: 'Choose a connected shop',
+    shopNamePlaceholder: 'e.g. Sharma Kirana Store',
+    shopCodePlaceholder: '4-digit code from your provider',
+    startBilling: 'Start Billing',
+    featFast: 'Fast Billing',
+    featStock: 'Stock Tracking',
+    featSaved: 'Always Saved'
+  },
+  hi: {
+    switchShop: 'दुकान बदलें',
+    appTitle: 'Quick Bill',
+    appSub: 'सामान खोजें, उस पर क्लिक करें, बिल में मात्रा बदलें। भाव तब तक स्थिर रहता है जब तक आप न बदलें — बिल बनते ही स्टॉक अपने आप घट जाता है, या कभी भी हाथ से बदल सकते हैं। जो भी जोड़ते हैं वह अपने आप सेव हो जाता है।',
+    newBillHeading: 'नया बिल',
+    entryPlaceholder: 'सामान का नाम लिखें, जैसे Maida या Maggi',
+    takePhoto: '📷 फोटो खींचें',
+    uploadPhoto: '🖼️ फोटो अपलोड करें',
+    entryHint: 'सामान चुनने के बाद सर्च बॉक्स अपने आप खाली हो जाता है — अगला सामान टाइप करते रहें, या हाथ से लिखी पर्ची की फोटो खींच लें।',
+    colItem: 'सामान', colQty: 'मात्रा', colRate: 'भाव', colAmount: 'राशि', colStock: 'स्टॉक',
+    emptyBillMsg: 'अभी तक कोई सामान नहीं जोड़ा गया — बिल शुरू करने के लिए ऊपर खोजें।',
+    itemsBilled: 'कुल सामान',
+    total: 'कुल राशि',
+    cashReceived: 'नकद प्राप्त',
+    changeToReturn: 'वापस देने की राशि',
+    printBill: 'बिल प्रिंट करें',
+    saveAsJpeg: '🖼️ JPEG में सेव करें',
+    clearBill: 'बिल साफ़ करें (अगला ग्राहक)',
+    ratesHeading: 'आज के भाव और स्टॉक',
+    ratesHint: 'भाव और स्टॉक आपके सेवा प्रदाता द्वारा तय और अपडेट किए जाते हैं — अपडेट होते ही यहां दिख जाएगा। बिल बनते ही स्टॉक अपने आप कम हो जाता है। पसंदीदा बनाने के लिए ☆ पर टैप करें।',
+    sortByLabel: 'इस तरह क्रम करें',
+    sortAlpha: 'वर्णानुक्रम (A–Z)',
+    sortNewest: 'नया सबसे पहले',
+    sortOldest: 'पुराना सबसे पहले',
+    emptyRateMsg: 'अभी कोई सामान नहीं — इस दुकान की गूगल शीट नीचे जोड़ें ताकि सूची लोड हो सके।',
+    sheetConnHeading: 'गूगल शीट कनेक्शन',
+    sheetConnHint: 'आपकी गूगल शीट आपके सेवा प्रदाता द्वारा उनकी तरफ से जोड़ी जाती है — यहां कुछ करने की ज़रूरत नहीं। अगर अभी तक नहीं जुड़ी है, तो नीचे लिंक पेस्ट करके आप खुद भी जोड़ सकते हैं।',
+    sheetUrlPlaceholder: 'यहां अपनी गूगल शीट वेब ऐप लिंक पेस्ट करें',
+    connect: 'जोड़ें',
+    pullLatest: '↻ शीट से ताज़ा जानकारी लाएं',
+    footerLine1: 'Quick Bill · फोटो स्कैनिंग आपके सेवा प्रदाता द्वारा जोड़ी और प्रबंधित की जाती है',
+    loginIntro: 'शुरू करने के लिए अपनी दुकान का नाम लिखें। आपके भाव, स्टॉक और पसंदीदा इसी नाम के तहत सेव होते हैं और अगली बार बिल्कुल वैसे ही वापस मिलते हैं।',
+    chooseConnectedShop: 'जुड़ी हुई दुकान चुनें',
+    shopNamePlaceholder: 'जैसे Sharma Kirana Store',
+    shopCodePlaceholder: 'आपके प्रदाता का 4 अंकों का कोड',
+    startBilling: 'बिलिंग शुरू करें',
+    featFast: 'तेज़ बिलिंग',
+    featStock: 'स्टॉक ट्रैकिंग',
+    featSaved: 'हमेशा सेव'
+  }
+};
+
+let appLanguage = 'en';
+try{ appLanguage = localStorage.getItem(LANG_KEY) || 'en'; } catch(err){}
+
+function applyLanguage(){
+  const dict = TRANSLATIONS[appLanguage] || TRANSLATIONS.en;
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const key = el.getAttribute('data-i18n');
+    if(dict[key] !== undefined) el.textContent = dict[key];
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el=>{
+    const key = el.getAttribute('data-i18n-placeholder');
+    if(dict[key] !== undefined) el.placeholder = dict[key];
+  });
+  document.documentElement.lang = appLanguage;
+  const toggleBtn = document.getElementById('langToggleBtn');
+  const toggleLabel = document.getElementById('langToggleLabel');
+  if(toggleBtn && toggleLabel){
+    toggleBtn.classList.toggle('active', appLanguage === 'hi');
+    toggleLabel.textContent = appLanguage === 'hi' ? 'EN' : 'हिं';
+    toggleBtn.title = appLanguage === 'hi' ? 'Switch to English' : 'हिंदी में बदलें';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', applyLanguage);
+if(document.readyState !== 'loading') applyLanguage();
 
 // ---- shop login + persistence ----
 // Each shop name is its own storage key, so catalogs never mix between shops,
@@ -1203,6 +1331,12 @@ async function startShop(){
     }
   } catch(err){ /* fall through to the login screen */ }
 })();
+
+document.getElementById('langToggleBtn').addEventListener('click', ()=>{
+  appLanguage = appLanguage === 'hi' ? 'en' : 'hi';
+  try{ localStorage.setItem(LANG_KEY, appLanguage); } catch(err){}
+  applyLanguage();
+});
 
 document.getElementById('switchShopBtn').addEventListener('click', ()=>{
   scheduleSave();
