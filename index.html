@@ -28,7 +28,9 @@
   html, body{ width:100%; max-width:100%; overflow-x:hidden; }
   body{
     margin:0; font-family:'Inter', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif;
-    background:var(--paper2); color:var(--ink); line-height:1.6;
+    background:linear-gradient(160deg, #EAF6F3 0%, #FDF9F1 45%, #F6ECDA 100%);
+    background-attachment:fixed;
+    color:var(--ink); line-height:1.6;
     -webkit-font-smoothing:antialiased;
     padding:22px;
     padding-top:max(22px, env(safe-area-inset-top));
@@ -270,7 +272,7 @@
   /* login overlay */
   #loginOverlay{
     position:fixed; inset:0;
-    background:linear-gradient(160deg, var(--paper2) 0%, #EADFC0 100%);
+    background:linear-gradient(160deg, #D9F0E9 0%, #FDF9F1 55%, #F3E6CE 100%);
     display:flex; align-items:center; justify-content:center;
     padding:20px; z-index:100;
   }
@@ -497,13 +499,13 @@
       <h2 data-i18n="newBillHeading">New Bill</h2>
       <div class="entry-row">
         <div class="entry-wrap">
-          <input id="entry" type="text" placeholder="Type an item name, Eg. Maida or Maggi" data-i18n-placeholder="entryPlaceholder" autocomplete="off">
+          <input id="entry" type="text" placeholder="Type an item name, e.g. Maida or Maggi" data-i18n-placeholder="entryPlaceholder" autocomplete="off">
           <div class="suggest-box" id="suggestBox" style="display:none;"></div>
         </div>
       </div>
       <div class="scan-btn-row">
-        <button class="ghost scan-btn" id="scanCameraBtn" data-i18n="takePhoto" title="Take a photo of a handwritten list">📷 Scan Parcha</button>
-        <button class="ghost scan-btn" id="scanGalleryBtn" data-i18n="uploadPhoto" title="Choose an existing photo, e.g. one received on WhatsApp">🖼️ Upload Parcha</button>
+        <button class="ghost scan-btn" id="scanCameraBtn" data-i18n="takePhoto" title="Take a photo of a handwritten list">📷 Take Photo</button>
+        <button class="ghost scan-btn" id="scanGalleryBtn" data-i18n="uploadPhoto" title="Choose an existing photo, e.g. one received on WhatsApp">🖼️ Upload Photo</button>
         <input type="file" id="scanFileCamera" accept="image/*" capture="environment" style="display:none;">
         <input type="file" id="scanFileGallery" accept="image/*" style="display:none;">
       </div>
@@ -536,7 +538,7 @@
 
       <div class="actions">
         <button id="printBtn" data-i18n="printBill">Print Bill</button>
-        <button class="ghost" id="saveImageBtn" data-i18n="saveAsJpeg">Download Bill</button>
+        <button class="ghost" id="saveImageBtn" data-i18n="saveAsJpeg">🖼️ Save As JPEG</button>
         <button class="ghost" id="clearBtn" data-i18n="clearBill">Clear Bill (Next Customer)</button>
       </div>
       <div class="date" id="dateLine"></div>
@@ -800,7 +802,7 @@ const TRANSLATIONS = {
     appSub: 'Search an item, click it, adjust qty in the bill row. Rates stay fixed until you change them — stock updates as you bill, or edit it by hand any time. Everything you add is saved automatically.',
     newBillHeading: 'New Bill',
     entryPlaceholder: 'Type an item name, e.g. Maida or Maggi',
-    takePhoto: '📷 Scan Parcha',
+    takePhoto: '📷 Take Photo',
     uploadPhoto: '🖼️ Upload Photo',
     entryHint: 'Search box clears itself after you pick an item — just keep typing the next one, or snap a photo of a handwritten list instead.',
     colItem: 'Item', colQty: 'Qty', colRate: 'Rate', colAmount: 'Amount', colStock: 'Stock',
@@ -810,7 +812,7 @@ const TRANSLATIONS = {
     cashReceived: 'Cash received',
     changeToReturn: 'Change To Return',
     printBill: 'Print Bill',
-    saveAsJpeg: 'Download Bill',
+    saveAsJpeg: '🖼️ Save As JPEG',
     clearBill: 'Clear Bill (Next Customer)',
     ratesHeading: "Today's Rates and Stock",
     ratesHint: "Prices and stock are set and updated by your service provider — you'll see changes here once they update it. Stock also drops automatically as items get billed. Tap ☆ to mark a favourite for quick access.",
@@ -850,7 +852,7 @@ const TRANSLATIONS = {
     cashReceived: 'नकद प्राप्त',
     changeToReturn: 'वापस देने की राशि',
     printBill: 'बिल प्रिंट करें',
-    saveAsJpeg: 'डाउनलोड करें',
+    saveAsJpeg: '🖼️ JPEG में सेव करें',
     clearBill: 'बिल साफ़ करें (अगला ग्राहक)',
     ratesHeading: 'आज के भाव और स्टॉक',
     ratesHint: 'भाव और स्टॉक आपके सेवा प्रदाता द्वारा तय और अपडेट किए जाते हैं — अपडेट होते ही यहां दिख जाएगा। बिल बनते ही स्टॉक अपने आप कम हो जाता है। पसंदीदा बनाने के लिए ☆ पर टैप करें।',
