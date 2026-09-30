@@ -45,16 +45,21 @@
   .topbar{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px;}
   .shop-name{font-size:18px; font-weight:700; letter-spacing:0.2px; color:var(--accent-dark);}
   .topbar-actions{display:flex; align-items:center; gap:8px;}
+  .lang-toggle, .switch-shop{
+    width:68px; height:34px; box-sizing:border-box; padding:0;
+    display:inline-flex; align-items:center; justify-content:center; gap:4px;
+  }
+  .switch-shop svg{width:18px; height:18px; display:block;}
   .lang-toggle{
     font-size:13.5px; color:var(--muted); cursor:pointer; background:var(--paper);
-    border:1px solid var(--line); padding:6px 12px; border-radius:20px; font-family:inherit; font-weight:600;
+    border:1px solid var(--line); padding:0; border-radius:20px; font-family:inherit; font-weight:600;
   }
   .lang-toggle:hover{border-color:var(--accent); color:var(--accent-dark); background:var(--paper);}
   .lang-toggle.active{background:var(--accent); color:#fff; border-color:var(--accent);}
   .lang-toggle.active:hover{background:var(--accent-dark); color:#fff;}
   .switch-shop{
     font-size:13.5px; color:var(--muted); text-decoration:none; cursor:pointer; background:var(--paper);
-    border:1px solid var(--line); padding:6px 12px; border-radius:20px; font-family:inherit; font-weight:600;
+    border:1px solid var(--line); padding:0; border-radius:20px; font-family:inherit; font-weight:600;
   }
   .switch-shop:hover{border-color:var(--accent); color:var(--accent-dark); background:var(--paper);}
   h1{
@@ -486,7 +491,7 @@
     <span class="shop-name" id="shopNameDisplay"></span>
     <div class="topbar-actions">
       <button class="lang-toggle" id="langToggleBtn" title="हिंदी में बदलें / Switch to Hindi">🌐 <span id="langToggleLabel">हिं</span></button>
-      <button class="switch-shop" id="switchShopBtn" data-i18n="switchShop">Switch Shop</button>
+      <button class="switch-shop" id="switchShopBtn" title="Switch Shop" aria-label="Switch Shop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3l4 4-4 4"/><path d="M3 7h18"/><path d="M7 21l-4-4 4-4"/><path d="M21 17H3"/></svg></button>
     </div>
   </div>
   <h1 data-i18n="appTitle">Quick Bill</h1>
@@ -898,6 +903,11 @@ function applyLanguage(){
     toggleBtn.classList.toggle('active', appLanguage === 'hi');
     toggleLabel.textContent = appLanguage === 'hi' ? 'EN' : 'हिं';
     toggleBtn.title = appLanguage === 'hi' ? 'Switch to English' : 'हिंदी में बदलें';
+  }
+  const shopBtn = document.getElementById('switchShopBtn');
+  if(shopBtn && dict.switchShop !== undefined){
+    shopBtn.title = dict.switchShop;
+    shopBtn.setAttribute('aria-label', dict.switchShop);
   }
 }
 
