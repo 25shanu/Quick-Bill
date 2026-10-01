@@ -262,18 +262,17 @@
   }
 
   #printArea{display:none;}
-  /* paper-size picker above the print buttons */
-  .paper-row{display:flex; align-items:center; gap:8px; margin-top:14px; font-size:13px; color:var(--muted); font-weight:600;}
-  .paper-row select{font-family:inherit; font-size:13.5px; border:1.5px solid var(--line); border-radius:6px; padding:5px 8px; background:#fff; color:var(--ink);}
-
-  /* Thermal-roll receipt layout. Width comes from the --paper-w / --paper-pad
-     variables set in JS (80 mm roll = "3 inch", 58 mm roll = "2 inch").
-     Thermal printers print pure black only, so everything is #000 — no greys. */
+  /* Thermal-roll receipt. No paper size is forced: the browser prints on
+     whatever paper the selected printer is set to (58 mm, 80 mm, ...) and the
+     receipt fills that width automatically. Text size scales with the width
+     (container query units). Thermal printers print pure black only, so
+     everything is #000 — no greys. */
   #printArea{
-    box-sizing:border-box; width:var(--paper-w, 80mm); padding:3mm var(--paper-pad, 4mm) 8mm;
+    box-sizing:border-box; width:100%; max-width:80mm; padding:3mm 4.5% 8mm;
     background:#fff; color:#000; font-family:Arial, 'Noto Sans Devanagari', sans-serif;
-    font-size:var(--paper-font, 12px); line-height:1.35; font-weight:600;
+    container-type:inline-size;
   }
+  #printArea .pinner{font-size:clamp(10px, 4.6cqw, 12.5px); line-height:1.35; font-weight:600;}
   #printArea.measuring{display:block; position:absolute; left:-9999px; top:0; visibility:hidden;}
   #printArea .pshopname{text-align:center; font-size:1.55em; font-weight:800; text-transform:uppercase; line-height:1.2; margin-bottom:2mm; word-break:break-word;}
   #printArea .pmeta{text-align:center; font-size:0.92em; font-weight:600;}
@@ -288,6 +287,7 @@
        extra pages/paper feed are produced after the receipt */
     body > *:not(#printArea){display:none !important;}
     #printArea{display:block; position:static;}
+    @page{ margin:0; }
   }
 
   .table-scroll{overflow-x:auto; -webkit-overflow-scrolling:touch; width:100%;}
@@ -559,13 +559,6 @@
         <div id="denomBreakdown" class="denom-grid"></div>
       </div>
 
-      <div class="paper-row">
-        <span data-i18n="paperSize">Paper size</span>
-        <select id="paperSizeSelect">
-          <option value="80">3 inch (80 mm)</option>
-          <option value="58">2 inch (58 mm)</option>
-        </select>
-      </div>
       <div class="actions">
         <button id="printBtn" data-i18n="printBill">Print Bill</button>
         <button class="ghost" id="saveImageBtn" data-i18n="saveAsJpeg">Save As JPEG</button>
@@ -842,7 +835,6 @@ const TRANSLATIONS = {
     cashReceived: 'Cash received',
     changeToReturn: 'Change To Return',
     printBill: 'Print Bill',
-    paperSize: 'Paper size',
     saveAsJpeg: 'Save As JPEG',
     clearBill: 'Clear Bill (Next Customer)',
     ratesHeading: "Today's Rates and Stock",
@@ -883,7 +875,6 @@ const TRANSLATIONS = {
     cashReceived: 'नकद प्राप्त',
     changeToReturn: 'वापस देने की राशि',
     printBill: 'बिल प्रिंट करें',
-    paperSize: 'पेपर साइज़',
     saveAsJpeg: 'JPEG में सेव करें',
     clearBill: 'बिल साफ़ करें (अगला ग्राहक)',
     ratesHeading: 'आज के भाव और स्टॉक',
@@ -2216,37 +2207,18 @@ function buildBillData(){
 }
 
 // ---- thermal receipt printing ----
-// "3 inch" = 80 mm roll, "2 inch" = 58 mm roll. Printable width is a little
-// narrower than the roll itself, which the side padding accounts for.
-const PAPER_KEY = 'ration-shop-paper-width';
-const PAPERS = {
-  '80': { widthMm: 80, padMm: 4, fontPx: 12 },
-  '58': { widthMm: 58, padMm: 2.5, fontPx: 10.5 }
-};
-let paperWidth = '80';
-try{ const saved = localStorage.getItem(PAPER_KEY); if(PAPERS[saved]) paperWidth = saved; } catch(err){}
-const paperSelect = document.getElementById('paperSizeSelect');
-paperSelect.value = paperWidth;
-paperSelect.addEventListener('change', ()=>{
-  paperWidth = PAPERS[paperSelect.value] ? paperSelect.value : '80';
-  try{ localStorage.setItem(PAPER_KEY, paperWidth); } catch(err){}
-});
-
+// No paper size is chosen in the app. The receipt is laid out to fill
+// whatever paper width the selected printer is set to (58 mm, 80 mm, ...).
 function escHtml(str){
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 document.getElementById('printBtn').addEventListener('click', ()=>{
   const data = buildBillData();
-  const paper = PAPERS[paperWidth] || PAPERS['80'];
   const area = document.getElementById('printArea');
 
-  area.style.setProperty('--paper-w', paper.widthMm + 'mm');
-  area.style.setProperty('--paper-pad', paper.padMm + 'mm');
-  area.style.setProperty('--paper-font', paper.fontPx + 'px');
-
   // shop name goes first, large and centred, like a supermarket receipt
-  let html = '';
+  let html = '<div class="pinner">';
   if(data.shopLine) html += `<div class="pshopname">${escHtml(data.shopLine)}</div>`;
   if(data.custLine) html += `<div class="pmeta">${escHtml(data.custLine)}</div>`;
   html += `<div class="pmeta">${escHtml(data.dateStr)}</div>`;
@@ -2257,23 +2229,8 @@ document.getElementById('printBtn').addEventListener('click', ()=>{
   html += `<div class="psep"></div>`;
   html += `<div class="pline"><span>Items Billed</span><span>${data.itemCount}</span></div>`;
   html += `<div class="ptotal"><span>Total</span><span>\u20B9${data.total.toFixed(2)}</span></div>`;
+  html += '</div>';
   area.innerHTML = html;
-
-  // Measure the real receipt height so the page is cut to exactly that length
-  // (a roll has no fixed page length — without this the browser would use A4
-  // and feed out a lot of blank paper).
-  area.classList.add('measuring');
-  const heightPx = area.getBoundingClientRect().height;
-  area.classList.remove('measuring');
-  const heightMm = Math.ceil(heightPx * 25.4 / 96) + 2;
-
-  let pageStyle = document.getElementById('dynamicPageStyle');
-  if(!pageStyle){
-    pageStyle = document.createElement('style');
-    pageStyle.id = 'dynamicPageStyle';
-    document.head.appendChild(pageStyle);
-  }
-  pageStyle.textContent = `@page{ size:${paper.widthMm}mm ${heightMm}mm; margin:0; }`;
 
   window.print();
 });
