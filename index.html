@@ -2481,6 +2481,9 @@ let fbApp = null;
 let fbLockRef = null;
 let fbDeviceLockRef = null;
 let fbDeviceRevokedRef = null;
+let fbConnRef = null;     // Firebase's own "am I connected right now" signal
+let fbOnlineRef = null;   // this device's live online/offline flag, read by the admin dashboard
+let fbChangedRef = null;  // when that flag last changed (= "last seen" once offline)
 let fbLockedValue = null;       // shop-wide lock, from Firebase (null = not known yet)
 let fbDeviceLockedValue = null; // THIS device's own lock, from Firebase (null = not known yet)
 let sheetLockedValue = false;   // what the sheet's own Apps Script last said, via normal polling
@@ -2528,6 +2531,22 @@ function startFirebaseLockListener(){
         handleDeviceLoggedOutByAdmin();
       }
     });
+
+    // Live presence for the admin dashboard's "Connected devices" list.
+    // Firebase notices on its own when this app is closed or loses internet
+    // and then flips the flag to offline, so no polling is involved.
+    if(fbConnRef) fbConnRef.off();
+    fbOnlineRef = firebase.database().ref(shopBase + '/devices/' + deviceId + '/online');
+    fbChangedRef = firebase.database().ref(shopBase + '/devices/' + deviceId + '/lastChanged');
+    fbConnRef = firebase.database().ref('.info/connected');
+    fbConnRef.on('value', (snapshot)=>{
+      if(snapshot.val() !== true) return;
+      const stamp = firebase.database.ServerValue.TIMESTAMP;
+      fbOnlineRef.onDisconnect().set(false).catch(()=>{});
+      fbChangedRef.onDisconnect().set(stamp).catch(()=>{});
+      fbOnlineRef.set(true).catch(()=>{});
+      fbChangedRef.set(stamp).catch(()=>{});
+    });
   } catch(err){
     // Firebase not reachable or misconfigured — the app still works fine off
     // the existing sheet-based polling alone, just without the instant push
@@ -2535,6 +2554,16 @@ function startFirebaseLockListener(){
 }
 
 function stopFirebaseLockListener(){
+  // leaving the shop on purpose (logout / removed): show as offline straight away
+  try{
+    if(fbConnRef) fbConnRef.off();
+    if(fbOnlineRef){
+      fbOnlineRef.onDisconnect().cancel();
+      fbOnlineRef.set(false).catch(()=>{});
+      fbChangedRef.set(firebase.database.ServerValue.TIMESTAMP).catch(()=>{});
+    }
+  } catch(err){}
+  fbConnRef = null; fbOnlineRef = null; fbChangedRef = null;
   if(fbLockRef) fbLockRef.off();
   if(fbDeviceLockRef) fbDeviceLockRef.off();
   if(fbDeviceRevokedRef) fbDeviceRevokedRef.off();
