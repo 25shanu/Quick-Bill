@@ -1408,6 +1408,7 @@ async function startShop(){
       localStorage.setItem(LAST_USED_SHOP_KEY, shopName);
     } catch(err){}
     rememberShop(shopName);
+    clearDeviceRevokedInFirebase(code); // the correct code was just entered: any earlier "logged out" flag is void
     resetLoginForm();
     enterApp();
   } else {
@@ -2551,6 +2552,20 @@ function startFirebaseLockListener(){
     // Firebase not reachable or misconfigured — the app still works fine off
     // the existing sheet-based polling alone, just without the instant push
   }
+}
+
+// When the admin logs a device out, Firebase keeps a "revoked" flag for it.
+// Entering the shop's code again must clear that flag — otherwise the app
+// would see the old flag the moment it reconnects and log itself out again,
+// over and over.
+function clearDeviceRevokedInFirebase(code){
+  if(!firebaseConfigured() || !code) return;
+  try{
+    if(!fbApp){
+      fbApp = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(FIREBASE_CONFIG);
+    }
+    firebase.database().ref('shops/' + fbShopKey(code) + '/devices/' + getOrCreateDeviceId() + '/revoked').set(false).catch(()=>{});
+  } catch(err){}
 }
 
 function stopFirebaseLockListener(){
