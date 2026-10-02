@@ -355,6 +355,10 @@
   .login-features .feat svg{width:26px; height:26px; color:var(--accent);}
 
   /* locked overlay — shown instead of the app when the shop is locked */
+  #nameOverlay{
+    position:fixed; inset:0; background:rgba(46,43,38,0.55); display:flex; align-items:center;
+    justify-content:center; padding:20px; z-index:150;
+  }
   #lockedOverlay{
     position:fixed; inset:0;
     background:linear-gradient(160deg, #F7E4E0 0%, #F0CFC8 100%);
@@ -489,6 +493,15 @@
   </div>
 </div>
 
+<div id="nameOverlay" style="display:none;">
+  <div class="login-card">
+    <h1 data-i18n="nameTitle">Enter your name</h1>
+    <p data-i18n="nameIntro">This name is shown to your service provider so they can recognise this device.</p>
+    <input type="text" id="deviceNameInput" maxlength="30" placeholder="e.g. Ramesh" data-i18n-placeholder="namePlaceholder" autocomplete="off">
+    <div class="login-note" id="nameNote" style="margin:8px 0 14px;"></div>
+    <button id="saveNameBtn" data-i18n="saveName">Continue</button>
+  </div>
+</div>
 <div id="lockedOverlay" style="display:none;">
   <div class="locked-card">
     <div class="locked-icon">
@@ -853,6 +866,11 @@ const TRANSLATIONS = {
     footerLine1: 'Quick Bill · photo scanning is connected and managed by your service provider',
     loginIntro: 'Enter your shop name to start. Your rates, stock, and favourites are saved under this name and come back exactly as you left them next time.',
     chooseConnectedShop: 'Choose a connected shop',
+    nameTitle: 'Enter your name',
+    nameIntro: 'This name is shown to your service provider so they can recognise this device.',
+    namePlaceholder: 'e.g. Ramesh',
+    saveName: 'Continue',
+    nameNeeded: 'Please enter your name.',
     shopNamePlaceholder: 'e.g. Sharma Kirana Store',
     shopCodePlaceholder: '4-digit code from your provider',
     startBilling: 'Start Billing',
@@ -893,6 +911,11 @@ const TRANSLATIONS = {
     footerLine1: 'Quick Bill · फोटो स्कैनिंग आपके सेवा प्रदाता द्वारा जोड़ी और प्रबंधित की जाती है',
     loginIntro: 'शुरू करने के लिए अपनी दुकान का नाम लिखें। आपके भाव, स्टॉक और पसंदीदा इसी नाम के तहत सेव होते हैं और अगली बार बिल्कुल वैसे ही वापस मिलते हैं।',
     chooseConnectedShop: 'जुड़ी हुई दुकान चुनें',
+    nameTitle: 'अपना नाम लिखें',
+    nameIntro: 'यह नाम आपके सर्विस प्रोवाइडर को दिखेगा ताकि वे इस डिवाइस को पहचान सकें।',
+    namePlaceholder: 'जैसे रमेश',
+    saveName: 'आगे बढ़ें',
+    nameNeeded: 'कृपया अपना नाम लिखें।',
     shopNamePlaceholder: 'जैसे Sharma Kirana Store',
     shopCodePlaceholder: 'आपके प्रदाता का 4 अंकों का कोड',
     startBilling: 'बिलिंग शुरू करें',
@@ -1125,6 +1148,7 @@ function enterApp(){
   clearTimeout(sheetPollTimer);
   consecutiveFailures = 0;
   runSyncCycle();
+  askForDeviceName();
 }
 
 // One full check-in cycle: first see if the provider has set/changed this
@@ -1256,6 +1280,35 @@ function setDeviceName(name){
   try{ localStorage.setItem(DEVICE_NAME_KEY, name); } catch(err){}
 }
 
+// "Enter your name" popup — shown right after login, only when this device
+// has no saved name yet (first time ever, or after the shop was removed from
+// this device). The name is sent to the registry with the very next
+// check-in, so it appears in the admin dashboard's "Connected devices" list.
+function askForDeviceName(){
+  let saved = null;
+  try{ saved = localStorage.getItem(DEVICE_NAME_KEY); } catch(err){ return; } // storage blocked — can't remember it anyway
+  if(saved) return;
+  document.getElementById('nameNote').textContent = '';
+  document.getElementById('deviceNameInput').value = '';
+  document.getElementById('nameOverlay').style.display = 'flex';
+  setTimeout(()=>document.getElementById('deviceNameInput').focus(), 50);
+}
+function saveDeviceNameFromPopup(){
+  const name = document.getElementById('deviceNameInput').value.trim().slice(0, 30);
+  if(!name){
+    const dict = TRANSLATIONS[appLanguage] || TRANSLATIONS.en;
+    document.getElementById('nameNote').textContent = dict.nameNeeded;
+    return;
+  }
+  setDeviceName(name);
+  document.getElementById('nameOverlay').style.display = 'none';
+  deviceCheckin(); // send the new name to the admin dashboard right away
+}
+document.getElementById('saveNameBtn').addEventListener('click', saveDeviceNameFromPopup);
+document.getElementById('deviceNameInput').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') saveDeviceNameFromPopup();
+});
+
 async function verifyShopCode(code){
   if(!REGISTRY_ENDPOINT || REGISTRY_ENDPOINT.startsWith('PASTE_')) return { ok: false };
   try{
@@ -1353,17 +1406,6 @@ async function startShop(){
       localStorage.setItem(LAST_USED_SHOP_KEY, shopName);
     } catch(err){}
     rememberShop(shopName);
-    // Ask once per device what to call it, so your admin can tell devices
-    // apart later (e.g. "Front counter phone" vs "Ramesh's phone"). Browsers
-    // don't expose a real device name to websites, so this is the practical
-    // alternative — skipping it just falls back to a guess like "Android Phone".
-    let existingDeviceName = null;
-    try{ existingDeviceName = localStorage.getItem(DEVICE_NAME_KEY); } catch(err){}
-    if(!existingDeviceName){
-      const suggested = guessDeviceName();
-      const chosen = prompt("Name this device so your provider can recognize it later (e.g. \"Front counter phone\"):", suggested);
-      setDeviceName((chosen && chosen.trim()) || suggested);
-    }
     resetLoginForm();
     enterApp();
   } else {
@@ -2606,6 +2648,7 @@ function forceDisconnectShop(message){
 
 // Called when the registry says this shop was deleted from the admin dashboard.
 function handleShopRemovedByAdmin(){
+  try{ localStorage.removeItem(DEVICE_NAME_KEY); } catch(err){}
   forceDisconnectShop('This shop was removed by your service provider. Contact them, or start again with a shop name.');
 }
 
@@ -2614,6 +2657,7 @@ function handleShopRemovedByAdmin(){
 // moment this is detected: local data is wiped and the sheet link is
 // dropped, so nothing keeps working off the stale code in the background.
 function handleShopCodeInvalidated(){
+  try{ localStorage.removeItem(DEVICE_NAME_KEY); } catch(err){}
   forceDisconnectShop('Your shop\'s secret code was reset by your service provider. Enter the new code to reconnect.');
 }
 
