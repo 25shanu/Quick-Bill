@@ -475,7 +475,7 @@
     </div>
 
     <input type="text" id="shopNameInput" placeholder="e.g. Sharma Kirana Store" data-i18n-placeholder="shopNamePlaceholder" autocomplete="off">
-    <input type="text" id="shopCodeInput" placeholder="4-digit code from your provider" data-i18n-placeholder="shopCodePlaceholder" autocomplete="off" inputmode="numeric" maxlength="4" style="display:none;">
+    <input type="text" id="shopCodeInput" placeholder="Code from your provider" data-i18n-placeholder="shopCodePlaceholder" autocomplete="off" inputmode="numeric" maxlength="8" style="display:none;">
     <button id="startBtn" data-i18n="startBilling">Start Billing</button>
     <div class="login-note" id="loginNote"></div>
     <div class="login-features">
@@ -874,7 +874,7 @@ const TRANSLATIONS = {
     saveName: 'Continue',
     nameNeeded: 'Please enter your name.',
     shopNamePlaceholder: 'e.g. Sharma Kirana Store',
-    shopCodePlaceholder: '4-digit code from your provider',
+    shopCodePlaceholder: 'Code from your provider',
     startBilling: 'Start Billing',
     featFast: 'Fast Billing',
     featStock: 'Stock Tracking',
@@ -919,7 +919,7 @@ const TRANSLATIONS = {
     saveName: 'आगे बढ़ें',
     nameNeeded: 'कृपया अपना नाम लिखें।',
     shopNamePlaceholder: 'जैसे Sharma Kirana Store',
-    shopCodePlaceholder: 'आपके प्रदाता का 4 अंकों का कोड',
+    shopCodePlaceholder: 'आपके प्रदाता का कोड',
     startBilling: 'बिलिंग शुरू करें',
     featFast: 'तेज़ बिलिंग',
     featStock: 'स्टॉक ट्रैकिंग',
@@ -1228,7 +1228,7 @@ function showCodeField(name){
   codeInput.value = '';
   codeInput.focus();
   btn.textContent = 'Verify & Continue';
-  noteEl.textContent = "This shop hasn't connected yet. Enter the 4-digit code your provider gave you.";
+  noteEl.textContent = "This shop hasn't connected yet. Enter the code your provider gave you.";
   if(awaitingCodeForName !== name){
     awaitingCodeForName = name;
     registerShopName(name); // let the admin dashboard know someone's trying this name, in case it still needs a code
@@ -1379,7 +1379,7 @@ async function startShop(){
 
   const code = codeInput.value.trim();
   if(!code){
-    noteEl.textContent = 'Please enter the 4-digit code your provider gave you.';
+    noteEl.textContent = 'Please enter the code your provider gave you.';
     return;
   }
 
