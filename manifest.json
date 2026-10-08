@@ -15,10 +15,10 @@
       "purpose": "any"
     },
     {
-      "src": "icon-maskable-512.png",
+      "src": "icon-512.png",
       "type": "image/png",
       "sizes": "512x512",
-      "purpose": "maskable"
+      "purpose": "any"
     }
   ],
   "start_url": ".",
