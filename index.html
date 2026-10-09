@@ -15,6 +15,29 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Quick Bill">
 <meta name="theme-color" content="#1F6F5C">
+<style id="splash-css">
+/* Welcome screen shown right after Android's own launch screen: white, with "नमस्ते" in the app's green.
+   The font below holds only these six letters (about 3 KB), so nothing needs to download. */
+@font-face{font-family:'QBNamaste'; font-weight:700; font-display:block; src:url(data:font/woff2;base64,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) format('woff2');}
+#splash{position:fixed; inset:0; z-index:99999; background:#fff; display:flex; align-items:center; justify-content:center; animation:spOut .45s ease 1.5s forwards;}
+#splash .sp-text{font-family:'QBNamaste','Noto Sans Devanagari','Kalam',sans-serif; font-weight:700; font-size:clamp(60px,21vw,110px); color:#1f6f5c; line-height:1.4; padding:0 .12em;
+  animation:spWrite .85s cubic-bezier(.65,0,.35,1) .15s both;}
+@keyframes spWrite{from{clip-path:inset(-40% 100% -40% -10%); transform:translateY(8px);} to{clip-path:inset(-40% -10% -40% -10%); transform:none;}}   /* "writes" left to right */
+@keyframes spOut{to{opacity:0; visibility:hidden;}}
+.no-splash #splash{display:none;}
+@media (prefers-reduced-motion:reduce){ #splash .sp-text{animation:none;} #splash{animation-delay:.9s;} }
+</style>
+<script>
+/* Show the welcome screen once per app launch (not on every refresh). While it shows, the phone's top bar is white too. */
+(function(){
+  try{
+    if(sessionStorage.getItem('qb-splash')){ document.documentElement.classList.add('no-splash'); return; }
+    sessionStorage.setItem('qb-splash','1');
+  }catch(e){}
+  var m = document.querySelector('meta[name="theme-color"]');
+  if(m){ m.setAttribute('content','#ffffff'); setTimeout(function(){ m.setAttribute('content','#1F6F5C'); }, 1900); }
+})();
+</script>
 <title>Quick Bill — Ration Shop</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -453,6 +476,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 </head>
 <body>
+<div id="splash" aria-hidden="true"><span class="sp-text">नमस्ते</span></div>
+<script>(function(){var s=document.getElementById('splash');if(!s)return;s.addEventListener('click',function(){s.style.display='none';});setTimeout(function(){if(s.parentNode)s.parentNode.removeChild(s);},2200);})();</script>
 
 <div id="loginOverlay">
   <div class="login-card">
