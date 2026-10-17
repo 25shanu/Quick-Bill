@@ -306,6 +306,38 @@
     padding:3px 8px; border-radius:6px; background:var(--paper2);
   }
 
+  /* ---- barcode scanner screen ---- */
+  #bcOverlay{position:fixed; inset:0; z-index:5000; background:#0c1411; color:#fff; display:none; flex-direction:column;}
+  .bc-top{display:flex; align-items:center; gap:10px; padding:12px 14px; padding-top:max(12px, env(safe-area-inset-top)); background:#0c1411;}
+  .bc-title{flex:1; font-weight:700; font-size:17px;}
+  .bc-count{font-size:13px; color:#9fd8c6;}
+  .bc-small, .bc-done{border:none; border-radius:10px; font-family:inherit; font-size:14.5px; font-weight:600; padding:10px 16px; cursor:pointer;}
+  .bc-small{background:rgba(255,255,255,.14); color:#fff;}
+  .bc-small.on{background:#f2c94c; color:#3b2f00;}
+  .bc-done{background:#fff; color:#175748;}
+  .bc-view{position:relative; flex:1; min-height:0; background:#000; overflow:hidden;}
+  #bcVideo{width:100%; height:100%; object-fit:cover; display:block; max-width:none;}
+  .bc-frame{position:absolute; left:50%; top:50%; width:80%; max-width:400px; height:32%; max-height:210px; transform:translate(-50%,-50%);
+    border:3px solid rgba(255,255,255,.9); border-radius:14px; box-shadow:0 0 0 100vmax rgba(0,0,0,.38);}
+  .bc-laser{position:absolute; left:6%; right:6%; top:12%; height:2px; background:#ff4d4d; box-shadow:0 0 8px #ff4d4d; animation:bcLaser 1.5s ease-in-out infinite alternate;}
+  @keyframes bcLaser{from{top:12%;} to{top:88%;}}
+  .bc-hint{position:absolute; left:0; right:0; bottom:14px; text-align:center; font-size:13.5px; color:#e8f5f0; text-shadow:0 1px 3px #000; padding:0 14px;}
+  .bc-result{background:var(--paper); color:var(--ink); border-radius:18px 18px 0 0; padding:16px 16px calc(16px + env(safe-area-inset-bottom)); min-height:150px; max-height:55vh; overflow:auto;}
+  .bc-res{border-left:6px solid var(--line); padding:4px 0 4px 14px;}
+  .bc-res.ok{border-left-color:var(--accent2);}
+  .bc-res.bad{border-left-color:var(--low);}
+  .bc-tag{font-size:13px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--muted);}
+  .bc-res.ok .bc-tag{color:var(--accent2);}
+  .bc-res.bad .bc-tag{color:var(--low); font-size:20px; text-transform:none; letter-spacing:0;}
+  .bc-name{font-size:22px; font-weight:700; line-height:1.3; margin-top:2px; word-break:break-word;}
+  .bc-sub{font-size:14.5px; color:var(--muted); margin-top:4px; word-break:break-all;}
+  .bc-btns{display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;}
+  .bc-btns button, .bc-list button{font-family:inherit; font-size:15px; font-weight:600; padding:11px 16px; border-radius:10px; cursor:pointer; border:1.5px solid var(--accent); background:var(--accent); color:#fff;}
+  .bc-btns button.alt{background:transparent; color:var(--accent-dark);}
+  #bcSearch{width:100%; font-family:inherit; font-size:16px; padding:12px 14px; border:1.5px solid var(--line); border-radius:10px; margin-top:10px; background:#fff; color:var(--ink);}
+  .bc-list{margin-top:8px; display:flex; flex-direction:column; gap:6px;}
+  .bc-list button{background:#fff; color:var(--ink); border:1.5px solid var(--line); text-align:left; font-weight:500;}
+
   #printArea{display:none;}
   /* Thermal-roll receipt. No paper size is forced: the browser prints on
      whatever paper the selected printer is set to (58 mm, 80 mm, ...) and the
@@ -606,6 +638,7 @@
       </div>
       <div class="scan-btn-row">
         <button class="ghost scan-btn" id="scanCameraBtn" data-i18n="takePhoto" title="Take a photo of a handwritten list">Scan Parcha</button>
+        <button class="ghost scan-btn" id="barcodeBtn" data-i18n="scanBarcode" title="Scan product barcodes one after another">Scan Barcode</button>
         <button class="ghost scan-btn" id="scanGalleryBtn" data-i18n="uploadPhoto" title="Choose an existing photo, e.g. one received on WhatsApp">Upload Photo</button>
         <input type="file" id="scanFileCamera" accept="image/*" capture="environment" style="display:none;">
         <input type="file" id="scanFileGallery" accept="image/*" style="display:none;">
@@ -691,6 +724,21 @@
 </div>
 
 <div id="printArea"></div>
+
+<div id="bcOverlay" role="dialog" aria-modal="true" aria-label="Barcode scanner">
+  <div class="bc-top">
+    <div class="bc-title" data-i18n="bcTitle">Barcode Scanner</div>
+    <div class="bc-count" id="bcCount"></div>
+    <button type="button" class="bc-small" id="bcTorch" style="display:none;" data-i18n="bcTorch">Torch</button>
+    <button type="button" class="bc-done" id="bcDone" data-i18n="bcDone">Done</button>
+  </div>
+  <div class="bc-view">
+    <video id="bcVideo" playsinline muted autoplay></video>
+    <div class="bc-frame"><span class="bc-laser"></span></div>
+    <div class="bc-hint" data-i18n="bcAim">Keep the barcode inside the frame</div>
+  </div>
+  <div class="bc-result" id="bcResult"></div>
+</div>
 
 <script>
 let items = [
@@ -905,6 +953,27 @@ const TRANSLATIONS = {
     entryPlaceholder: 'Type an item name, e.g. Maida or Maggi',
     takePhoto: 'Scan Parcha',
     uploadPhoto: 'Upload Photo',
+    scanBarcode: 'Scan Barcode',
+    bcTitle: 'Barcode Scanner',
+    bcAim: 'Keep the barcode inside the frame',
+    bcDone: 'Done',
+    bcTorch: 'Torch',
+    bcWaiting: 'Scan the next product...',
+    bcScanned: 'Added',
+    bcAdded: 'Added to bill',
+    bcInBill: 'In bill',
+    bcStockEmpty: 'Stock empty',
+    bcNotFound: 'Product not found',
+    bcCode: 'Barcode',
+    bcLink: 'Link to a product',
+    bcCancel: 'Cancel',
+    bcSearch: 'Type the product name',
+    bcLinked: 'Barcode linked',
+    bcLinkedSheet: 'Barcode saved to your sheet, and the product was added to the bill.',
+    bcLinkedLocal: 'Barcode saved on this phone, and the product was added to the bill.',
+    bcCamDenied: 'Camera permission is needed. Allow the camera for Quick Bill in your phone or browser settings, then open the scanner again.',
+    bcNoCamera: 'No camera could be opened on this phone.',
+    bcOffline: 'This phone has no built-in barcode reader, and the internet is off. Turn the internet on once and try again.',
     entryHint: 'Search box clears itself after you pick an item — just keep typing the next one, or snap a photo of a handwritten list instead.',
     colItem: 'Item', colQty: 'Qty', colRate: 'Rate', colAmount: 'Amount', colStock: 'Stock',
     emptyBillMsg: 'No items added yet — search above to start the bill.',
@@ -950,6 +1019,27 @@ const TRANSLATIONS = {
     entryPlaceholder: 'सामान का नाम लिखें, जैसे Maida या Maggi',
     takePhoto: 'पर्ची स्कैन करें',
     uploadPhoto: 'फोटो अपलोड करें',
+    scanBarcode: 'बारकोड स्कैन करें',
+    bcTitle: 'बारकोड स्कैनर',
+    bcAim: 'बारकोड को फ्रेम के अंदर रखें',
+    bcDone: 'पूरा हुआ',
+    bcTorch: 'टॉर्च',
+    bcWaiting: 'अगला सामान स्कैन करें...',
+    bcScanned: 'जोड़े गए',
+    bcAdded: 'बिल में जुड़ गया',
+    bcInBill: 'बिल में',
+    bcStockEmpty: 'स्टॉक खत्म',
+    bcNotFound: 'सामान नहीं मिला',
+    bcCode: 'बारकोड',
+    bcLink: 'सामान से जोड़ें',
+    bcCancel: 'रद्द करें',
+    bcSearch: 'सामान का नाम लिखें',
+    bcLinked: 'बारकोड जुड़ गया',
+    bcLinkedSheet: 'बारकोड आपकी शीट में सेव हो गया और सामान बिल में जुड़ गया।',
+    bcLinkedLocal: 'बारकोड इस फ़ोन में सेव हो गया और सामान बिल में जुड़ गया।',
+    bcCamDenied: 'कैमरे की अनुमति चाहिए। फ़ोन या ब्राउज़र की सेटिंग में Quick Bill के लिए कैमरा चालू करें, फिर स्कैनर दोबारा खोलें।',
+    bcNoCamera: 'इस फ़ोन पर कैमरा नहीं खुल सका।',
+    bcOffline: 'इस फ़ोन में बारकोड रीडर नहीं है और इंटरनेट भी बंद है। एक बार इंटरनेट चालू करके फिर कोशिश करें।',
     entryHint: 'सामान चुनने के बाद सर्च बॉक्स अपने आप खाली हो जाता है — अगला सामान टाइप करते रहें, या हाथ से लिखी पर्ची की फोटो खींच लें।',
     colItem: 'सामान', colQty: 'मात्रा', colRate: 'भाव', colAmount: 'राशि', colStock: 'स्टॉक',
     emptyBillMsg: 'अभी तक कोई सामान नहीं जोड़ा गया — बिल शुरू करने के लिए ऊपर खोजें।',
@@ -1042,6 +1132,7 @@ try{
 function shopKey(name){ return 'shop:' + name.toLowerCase().trim(); }
 
 let sheetUrl = ''; // this shop's connected Google Sheet web app URL, if any
+var sheetBarcodeSupport = false; // true once the sheet's script says it understands barcodes
 let locked = false; // set by your service provider from the admin dashboard when payment isn't done
 let lockedBecauseOfDeviceOnly = false; // true when only THIS device is locked, not the whole shop — shown with different wording
 let shopCode = null; // the unique 4-digit code this shop was verified with — used for all registry lookups instead of the (possibly duplicated) shop name
@@ -1260,6 +1351,7 @@ async function deviceCheckin(){
 // it, based on the current value of `locked` — called after every pull/connect
 // and right on login, using whatever lock status was last saved
 function applyLockState(){
+  if(locked && typeof window.closeBarcodeScanner === 'function') window.closeBarcodeScanner();
   const overlay = document.getElementById('lockedOverlay');
   const appRoot = document.getElementById('appRoot');
   const heading = document.getElementById('lockedHeading');
@@ -1632,7 +1724,8 @@ async function pullFromSheet(showStatus, retry){
       type: ['weight','volume','packet'].includes(it.type) ? it.type : 'weight',
       rate: Number(it.rate) || 0,
       stock: Number(it.stock) || 0,
-      favorite: !!it.favorite
+      favorite: !!it.favorite,
+      barcode: String(it.barcode == null ? '' : it.barcode).trim()
     }));
 
     // Skip the expensive re-render entirely if nothing actually changed.
@@ -1641,6 +1734,7 @@ async function pullFromSheet(showStatus, retry){
     // which is the vast majority of the time — is what makes the app feel
     // slow, not the network request itself. This check makes a no-change
     // poll effectively free.
+    sheetBarcodeSupport = (data.barcodeSupport === true);
     const changed = JSON.stringify(freshItems) !== JSON.stringify(items);
     items = freshItems;
 
@@ -1705,13 +1799,15 @@ document.getElementById('connectSheetBtn').addEventListener('click', async ()=>{
 
     // the link actually works — only now do we commit to it and lock the field
     sheetUrl = url;
+    sheetBarcodeSupport = (data.barcodeSupport === true);
     items = data.items.map(it => ({
       aliases: Array.isArray(it.aliases) ? it.aliases : [],
       name: it.name || 'Unnamed item',
       type: ['weight','volume','packet'].includes(it.type) ? it.type : 'weight',
       rate: Number(it.rate) || 0,
       stock: Number(it.stock) || 0,
-      favorite: !!it.favorite
+      favorite: !!it.favorite,
+      barcode: String(it.barcode == null ? '' : it.barcode).trim()
     }));
     if(typeof data.locked === 'boolean') sheetLockedValue = data.locked;
     // if the field is missing entirely (old Apps Script not yet redeployed
@@ -2844,6 +2940,263 @@ document.getElementById('scanFileGallery').addEventListener('change', (e)=>{
   if(file) handleScanFile(file);
   e.target.value = '';
 });
+
+// ---- barcode scanner ----
+// Opens the camera and keeps it open: each barcode that is read adds the matching
+// product to the bill with a beep, then it waits for the next one. It closes only
+// when the shopkeeper taps Done (or the phone's Back button).
+(function(){
+  const $ = id => document.getElementById(id);
+  const ov = $('bcOverlay');
+  if(!ov) return;
+  const video = $('bcVideo'), resBox = $('bcResult'), countEl = $('bcCount'), torchBtn = $('bcTorch');
+  const T = k => { const d = TRANSLATIONS[appLanguage] || TRANSLATIONS.en; return d[k] !== undefined ? d[k] : (TRANSLATIONS.en[k] || k); };
+
+  let isOpen = false, paused = false, stream = null, timer = null, loopId = 0, detector = null, zx = null;
+  let audioCtx = null, wake = null, torchOn = false, lastCode = '', lastSeen = 0, addedCount = 0;
+
+  // ---- matching a barcode to a product ----
+  // Digits-only codes are compared without leading zeros, so a 12-digit UPC-A and
+  // the same code printed as 13-digit EAN-13 still match.
+  function normCode(c){
+    c = String(c == null ? '' : c).replace(/\s+/g, '').toUpperCase();
+    return /^\d+$/.test(c) ? (c.replace(/^0+/, '') || '0') : c;
+  }
+  function splitCodes(v){ return String(v == null ? '' : v).split(/[,;\s]+/).map(s => s.trim()).filter(Boolean); }
+  const linkKey = () => 'qb-barcode-links:' + String(shopName || '').toLowerCase().trim();
+  function loadLinks(){ try{ return JSON.parse(localStorage.getItem(linkKey()) || '{}') || {}; }catch(e){ return {}; } }
+  function saveLinks(m){ try{ localStorage.setItem(linkKey(), JSON.stringify(m)); }catch(e){} }
+  function findItemByCode(code){
+    const n = normCode(code);
+    for(let i = 0; i < items.length; i++){
+      if(items[i].barcode && splitCodes(items[i].barcode).some(c => normCode(c) === n)) return i;
+    }
+    const nm = loadLinks()[n];
+    if(nm){ for(let i = 0; i < items.length; i++){ if(items[i].name === nm) return i; } }
+    return -1;
+  }
+
+  // ---- beep and vibration ----
+  function ensureAudio(){
+    try{
+      if(!audioCtx){ const AC = window.AudioContext || window.webkitAudioContext; if(AC) audioCtx = new AC(); }
+      if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    }catch(e){}
+  }
+  function tone(freq, start, dur, vol){
+    if(!audioCtx) return;
+    try{
+      const t0 = audioCtx.currentTime + start;
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = 'square'; o.frequency.value = freq;
+      g.gain.setValueAtTime(vol, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(t0); o.stop(t0 + dur + 0.02);
+    }catch(e){}
+  }
+  function buzz(p){ try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
+  const beepOk  = () => { tone(1800, 0, 0.14, 0.22); buzz(50); };
+  const beepBad = () => { tone(320, 0, 0.18, 0.28); tone(230, 0.22, 0.28, 0.28); buzz([80, 60, 80]); };
+
+  // ---- the result panel at the bottom ----
+  function box(kind, tag, name, sub){
+    resBox.innerHTML = '';
+    const r = document.createElement('div'); r.className = 'bc-res ' + (kind || '');
+    const t = document.createElement('div'); t.className = 'bc-tag'; t.textContent = tag; r.appendChild(t);
+    if(name){ const n = document.createElement('div'); n.className = 'bc-name'; n.textContent = name; r.appendChild(n); }
+    if(sub){ const s = document.createElement('div'); s.className = 'bc-sub'; s.textContent = sub; r.appendChild(s); }
+    resBox.appendChild(r);
+    return r;
+  }
+  function addBtn(parent, label, alt, fn){
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+    if(alt) b.className = 'alt'; b.addEventListener('click', fn);
+    parent.appendChild(b); return b;
+  }
+  function showWaiting(){ box('', T('bcWaiting')); }
+  function updateCount(){ countEl.textContent = addedCount ? (T('bcScanned') + ': ' + addedCount) : ''; }
+  function showAdded(it, line){
+    const inBill = line ? (T('bcInBill') + ': ' + line.qty + ' ' + line.unit) : '';
+    box('ok', T('bcAdded'), it.name, '\u20B9' + it.rate + (inBill ? '  |  ' + inBill : ''));
+  }
+  function showEmpty(it){ box('bad', T('bcStockEmpty'), it.name, ''); }
+  function showNotFound(code){
+    const r = box('bad', T('bcNotFound'), '', T('bcCode') + ': ' + code);
+    const row = document.createElement('div'); row.className = 'bc-btns'; r.appendChild(row);
+    addBtn(row, T('bcLink'), false, () => showLinker(code));
+  }
+  function showMsg(text, kind){ box(kind || '', text); }
+
+  // ---- teaching the app a new barcode ----
+  function showLinker(code){
+    paused = true;
+    resBox.innerHTML = '';
+    const r = document.createElement('div'); r.className = 'bc-res';
+    const s = document.createElement('div'); s.className = 'bc-sub'; s.textContent = T('bcCode') + ': ' + code; r.appendChild(s);
+    const inp = document.createElement('input'); inp.id = 'bcSearch'; inp.type = 'text'; inp.autocomplete = 'off'; inp.placeholder = T('bcSearch'); r.appendChild(inp);
+    const list = document.createElement('div'); list.className = 'bc-list'; r.appendChild(list);
+    const row = document.createElement('div'); row.className = 'bc-btns'; r.appendChild(row);
+    addBtn(row, T('bcCancel'), true, () => { paused = false; showWaiting(); });
+    resBox.appendChild(r);
+    function refresh(){
+      const q = inp.value.trim().toLowerCase();
+      list.innerHTML = '';
+      if(!q) return;
+      let shown = 0;
+      for(let i = 0; i < items.length && shown < 6; i++){
+        const it = items[i];
+        if(it.name.toLowerCase().includes(q) || (it.aliases || []).some(a => String(a).toLowerCase().includes(q))){
+          const b = document.createElement('button'); b.type = 'button'; b.textContent = it.name;
+          b.addEventListener('click', () => linkCode(code, i));
+          list.appendChild(b); shown++;
+        }
+      }
+    }
+    inp.addEventListener('input', refresh);
+    setTimeout(() => { try{ inp.focus(); }catch(e){} }, 50);
+  }
+  function linkCode(code, idx){
+    const it = items[idx]; if(!it) return;
+    const links = loadLinks(); links[normCode(code)] = it.name; saveLinks(links);
+    let toSheet = false;
+    // Only send it to the sheet when the sheet's script says it understands barcodes.
+    // An older script would mistake the request for a full catalog save.
+    if(sheetUrl && sheetBarcodeSupport){
+      toSheet = true;
+      fetch(sheetUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'setBarcode', name: it.name, barcode: String(code) }) })
+        .then(r => r.text())
+        .then(t => { try{ const j = JSON.parse(t); if(j && j.ok){ it.barcode = splitCodes(it.barcode).concat([String(code)]).join(', '); scheduleSaveLocalOnly(); } }catch(e){} })
+        .catch(() => {});
+    }
+    paused = false;
+    lastCode = String(code); lastSeen = Date.now();   // the barcode is still in front of the camera: do not add it a second time
+    if(addToBill(idx)){
+      beepOk(); addedCount++; updateCount();
+      const line = activeBill().find(l => l.itemIdx === idx);
+      box('ok', T('bcLinked'), it.name, (toSheet ? T('bcLinkedSheet') : T('bcLinkedLocal')) + (line ? '  (' + T('bcInBill') + ': ' + line.qty + ' ' + line.unit + ')' : ''));
+    } else {
+      beepBad(); showEmpty(it);
+    }
+  }
+
+  // ---- a barcode was read ----
+  function onCode(raw){
+    const code = String(raw || '').trim();
+    if(!code || paused || !isOpen) return;
+    const now = Date.now();
+    // While the same barcode stays in view it is ignored. To add one more, move it away and bring it back.
+    if(code === lastCode && now - lastSeen < 1500){ lastSeen = now; return; }
+    lastCode = code; lastSeen = now;
+    const idx = findItemByCode(code);
+    if(idx < 0){ beepBad(); showNotFound(code); return; }
+    const it = items[idx];
+    if(addToBill(idx)){
+      beepOk(); addedCount++; updateCount();
+      showAdded(it, activeBill().find(l => l.itemIdx === idx));
+    } else {
+      beepBad(); showEmpty(it);
+    }
+  }
+
+  // ---- camera engines ----
+  async function getStream(){
+    return navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+  }
+  async function startNative(){
+    stream = await getStream();
+    video.srcObject = stream;
+    await video.play();
+    try{
+      const track = stream.getVideoTracks()[0];
+      const caps = track.getCapabilities ? track.getCapabilities() : null;
+      if(caps && caps.torch) torchBtn.style.display = '';
+    }catch(e){}
+    const id = ++loopId;
+    (function loop(){
+      if(!isOpen || id !== loopId) return;
+      const next = () => { timer = setTimeout(loop, 140); };
+      if(paused || video.readyState < 2){ next(); return; }
+      detector.detect(video).then(c => { if(c && c.length) onCode(c[0].rawValue); }).catch(() => {}).then(next);
+    })();
+  }
+  function loadZx(){
+    return new Promise((res, rej) => {
+      if(window.ZXing) return res();
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
+      s.onload = () => res(); s.onerror = () => rej(new Error('offline'));
+      document.head.appendChild(s);
+    });
+  }
+  async function startZxing(){
+    await loadZx();
+    const Z = window.ZXing, F = Z.BarcodeFormat, hints = new Map();
+    hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39, F.CODE_93, F.ITF, F.CODABAR]);
+    zx = new Z.BrowserMultiFormatReader(hints, 150);
+    await zx.decodeFromConstraints({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+      video, (result) => { if(result) onCode(result.getText()); });
+  }
+  async function startEngine(){
+    if(!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ showMsg(T('bcNoCamera'), 'bad'); return; }
+    try{
+      if('BarcodeDetector' in window){
+        let fmts = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'code_93', 'itf', 'codabar'];
+        try{ const sup = await BarcodeDetector.getSupportedFormats(); fmts = fmts.filter(f => sup.includes(f)); }catch(e){}
+        if(fmts.length){ detector = new BarcodeDetector({ formats: fmts }); await startNative(); return; }
+      }
+      await startZxing();
+    }catch(err){
+      const n = err && err.name;
+      if(n === 'NotAllowedError' || n === 'SecurityError') showMsg(T('bcCamDenied'), 'bad');
+      else if(n === 'NotFoundError' || n === 'OverconstrainedError') showMsg(T('bcNoCamera'), 'bad');
+      else if(err && err.message === 'offline') showMsg(T('bcOffline'), 'bad');
+      else showMsg((err && err.message) || T('bcNoCamera'), 'bad');
+    }
+  }
+
+  async function requestWake(){ try{ if(navigator.wakeLock) wake = await navigator.wakeLock.request('screen'); }catch(e){} }
+  function releaseWake(){ try{ if(wake){ wake.release(); wake = null; } }catch(e){} }
+
+  // ---- open and close ----
+  async function openScanner(){
+    if(isOpen || locked) return;
+    ensureAudio();
+    isOpen = true; paused = false; lastCode = ''; lastSeen = 0; addedCount = 0; torchOn = false;
+    updateCount(); showWaiting();
+    torchBtn.style.display = 'none'; torchBtn.classList.remove('on');
+    ov.style.display = 'flex'; document.body.style.overflow = 'hidden';
+    try{ history.pushState({ qbScan: true }, ''); }catch(e){}   // so the phone's Back button closes the scanner, not the app
+    requestWake();
+    await startEngine();
+  }
+  function closeScanner(fromPop){
+    if(!isOpen) return;
+    isOpen = false; paused = false; loopId++; clearTimeout(timer);
+    try{ if(zx){ zx.reset(); zx = null; } }catch(e){}
+    if(stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
+    video.srcObject = null; detector = null;
+    ov.style.display = 'none'; document.body.style.overflow = '';
+    releaseWake();
+    if(!fromPop){ try{ if(history.state && history.state.qbScan) history.back(); }catch(e){} }
+  }
+  window.closeBarcodeScanner = function(){ closeScanner(false); };
+
+  torchBtn.addEventListener('click', async () => {
+    try{
+      const track = stream && stream.getVideoTracks()[0]; if(!track) return;
+      torchOn = !torchOn;
+      await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+      torchBtn.classList.toggle('on', torchOn);
+    }catch(e){ torchOn = false; torchBtn.classList.remove('on'); }
+  });
+  $('barcodeBtn').addEventListener('click', openScanner);
+  $('bcDone').addEventListener('click', () => closeScanner(false));
+  window.addEventListener('popstate', () => { if(isOpen) closeScanner(true); });
+  document.addEventListener('keydown', e => { if(e.key === 'Escape' && isOpen) closeScanner(false); });
+  document.addEventListener('visibilitychange', () => { if(document.hidden && isOpen) closeScanner(false); });
+})();
 
 // Lets the app open even with zero internet connection, instead of the
 // browser's own "No internet connection" error page — billing itself
