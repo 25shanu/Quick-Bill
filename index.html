@@ -258,6 +258,16 @@
   .empty-msg{color:var(--muted); font-size:15px; padding:20px 0; text-align:center;}
 
   .meta-line{display:flex; justify-content:space-between; padding:5px 0; font-size:14px; color:var(--muted); margin-top:8px; font-weight:600;}
+  .amtbox{display:flex; align-items:center; justify-content:flex-end; gap:3px; font-family:'Courier New', monospace;}
+  .amtbox input{width:78px; font-family:'Courier New', monospace; font-size:15px; padding:6px 4px; border:1.5px solid var(--line); border-radius:6px; text-align:right;}
+  .amtbox input[type=number]{ -moz-appearance:textfield; appearance:textfield; }
+  .amtbox input::-webkit-outer-spin-button, .amtbox input::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+  /* tidy spacing for the hint, discount and To Pay rows */
+  #amtHint{margin:10px 0 16px;}
+  .change-block .change-row{margin-bottom:12px;}
+  #discountNote{margin:-4px 0 12px !important;}
+  #payRow{background:var(--paper2); border-radius:10px; padding:10px 14px; margin:0 0 18px;}
+  #payRow .amt{font-size:21px;}
   .total{
     margin-top:8px; padding-top:14px; border-top:3px solid var(--accent);
     display:flex; justify-content:space-between; align-items:baseline;
@@ -474,6 +484,7 @@
 
     .qtybox{flex-wrap:nowrap;}
     .qtybox input{width:50px;}
+    .amtbox input{width:70px;}
     table{font-size:14px;}
     th, td{padding:8px 4px;}
     .rate-row .name{font-size:13.5px;}
@@ -502,6 +513,7 @@
 
   @media (max-width:380px){
     .qtybox input{width:44px;}
+    .amtbox input{width:62px;}
     table{font-size:13px;}
     .login-features{flex-wrap:wrap; row-gap:16px;}
     h1{font-size:21px;}
@@ -514,6 +526,7 @@
     .panel{padding:12px 10px;}
     th, td{padding:6px 3px;}
     .qtybox input{width:38px;}
+    .amtbox input{width:58px;}
     .qtybox select{font-size:12px;}
   }
 </style>
@@ -672,12 +685,22 @@
           <tbody id="billBody"></tbody>
         </table>
       </div>
+      <div class="hint" id="amtHint" style="display:none;" data-i18n="amtHint">For loose items, type the rupees in the Amount box and the weight or litres fill in automatically.</div>
       <div class="empty-msg" id="emptyMsg" data-i18n="emptyBillMsg">No items added yet — search above to start the bill.</div>
 
       <div class="meta-line"><span data-i18n="itemsBilled">Items Billed</span><span id="itemCount">0</span></div>
       <div class="total"><span data-i18n="total">Total</span><span class="amt" id="totalAmt">₹0.00</span></div>
 
       <div class="change-block">
+        <div class="change-row">
+          <label for="discountAmt" data-i18n="discountLabel">Discount (₹)</label>
+          <input type="number" id="discountAmt" placeholder="e.g. 10" min="0" step="any">
+        </div>
+        <div class="hint" id="discountNote" style="display:none; margin:-4px 0 10px;" data-i18n="discountTooBig">Discount cannot be more than the total.</div>
+        <div class="change-row change-due" id="payRow" style="display:none;">
+          <span data-i18n="toPay">To Pay</span>
+          <span class="amt" id="payAmt">₹0.00</span>
+        </div>
         <div class="change-row">
           <label for="cashReceived" data-i18n="cashReceived">Cash received</label>
           <input type="number" id="cashReceived" placeholder="e.g. 500" min="0" step="any">
@@ -1001,6 +1024,10 @@ const TRANSLATIONS = {
     itemsBilled: 'Items Billed',
     total: 'Total',
     cashReceived: 'Cash received',
+    discountLabel: 'Discount (\u20B9)',
+    toPay: 'To Pay',
+    discountTooBig: 'Discount cannot be more than the total.',
+    amtHint: 'For loose items, type the rupees in the Amount box and the weight or litres fill in automatically.',
     changeToReturn: 'Change To Return',
     printBill: 'Print Bill',
     saveAsJpeg: 'Save As JPEG',
@@ -1069,6 +1096,10 @@ const TRANSLATIONS = {
     itemsBilled: 'कुल सामान',
     total: 'कुल राशि',
     cashReceived: 'नकद प्राप्त',
+    discountLabel: 'छूट (\u20B9)',
+    toPay: 'देय राशि',
+    discountTooBig: 'छूट कुल राशि से ज़्यादा नहीं हो सकती।',
+    amtHint: 'खुले सामान के लिए Amount में रुपये लिखें, वज़न या लीटर अपने आप भर जाएगा।',
     changeToReturn: 'वापस देने की राशि',
     printBill: 'बिल प्रिंट करें',
     saveAsJpeg: 'JPEG में सेव करें',
@@ -2056,6 +2087,13 @@ function renderRates(){
   });
 }
 
+// the amount of one bill line: normally quantity x rate, but when the shopkeeper typed the rupees
+// (for loose items, "10 rs ka soda") that exact amount is kept, so rounding never changes it
+function lineAmount(line, item){
+  if(line.fixedAmount !== undefined && line.fixedAmount !== null) return line.fixedAmount;
+  return toBaseQty(line.qty, line.unit, item.type) * item.rate;
+}
+
 function fromBaseQty(baseQty, unit, type){
   if(type === 'weight' && unit === 'g') return baseQty * 1000;
   if(type === 'volume' && unit === 'ml') return baseQty * 1000;
@@ -2079,6 +2117,7 @@ function addToBill(itemIdx, qty, unit){
     const existingBase = toBaseQty(existing.qty, existing.unit, item.type);
     const incomingBase = toBaseQty(finalQty, finalUnit, item.type);
     existing.qty = fromBaseQty(existingBase + incomingBase, existing.unit, item.type);
+    delete existing.fixedAmount;
     flashMergeNote(item.name);
   } else {
     bill.push({itemIdx, qty:finalQty, unit:finalUnit});
@@ -2112,28 +2151,44 @@ function applyStockDelta(itemIdx, qty, unit, sign){
 }
 
 let currentTotal = 0;
+let currentPayable = 0;
 const DENOMINATIONS = [2000, 500, 200, 100, 50, 20, 10, 5, 2, 1];
+
+// discount in rupees given to the active customer (never more than the bill total)
+function activeDiscountFor(total){
+  const c = customers[activeCustomerIdx];
+  const d = Math.max(0, parseFloat(c && c.discount) || 0);
+  return Math.min(d, total);
+}
 
 function updateChange(){
   const receivedInput = document.getElementById('cashReceived');
   const received = parseFloat(receivedInput.value) || 0;
   const changeAmtEl = document.getElementById('changeAmt');
   const breakdownEl = document.getElementById('denomBreakdown');
-  const change = received - currentTotal;
+
+  const typedDiscount = Math.max(0, parseFloat((customers[activeCustomerIdx] || {}).discount) || 0);
+  const discount = activeDiscountFor(currentTotal);
+  currentPayable = currentTotal - discount;
+  document.getElementById('payRow').style.display = discount > 0 ? 'flex' : 'none';
+  document.getElementById('payAmt').textContent = `\u20B9${currentPayable.toFixed(2)}`;
+  document.getElementById('discountNote').style.display = (typedDiscount > currentTotal && currentTotal > 0) ? 'block' : 'none';
+
+  const change = received - currentPayable;
 
   if(!receivedInput.value){
-    changeAmtEl.textContent = '₹0.00';
+    changeAmtEl.textContent = '\u20B90.00';
     changeAmtEl.classList.remove('negative');
     breakdownEl.innerHTML = '';
     return;
   }
   if(change < 0){
-    changeAmtEl.textContent = `short by ₹${Math.abs(change).toFixed(2)}`;
+    changeAmtEl.textContent = `short by \u20B9${Math.abs(change).toFixed(2)}`;
     changeAmtEl.classList.add('negative');
     breakdownEl.innerHTML = '';
     return;
   }
-  changeAmtEl.textContent = `₹${change.toFixed(2)}`;
+  changeAmtEl.textContent = `\u20B9${change.toFixed(2)}`;
   changeAmtEl.classList.remove('negative');
 
   let remaining = Math.floor(change);
@@ -2142,15 +2197,19 @@ function updateChange(){
   DENOMINATIONS.forEach(d=>{
     const count = Math.floor(remaining / d);
     if(count > 0){
-      chips.push(`<div class="denom-chip"><span class="count">${count}×</span><span>₹${d}</span></div>`);
+      chips.push(`<div class="denom-chip"><span class="count">${count}\u00D7</span><span>\u20B9${d}</span></div>`);
       remaining -= count * d;
     }
   });
   breakdownEl.innerHTML = chips.join('') || '<div class="denom-note">No notes/coins needed.</div>';
   if(paise > 0){
-    breakdownEl.innerHTML += `<div class="denom-note">Plus ₹0.${paise.toString().padStart(2,'0')} in coins/rounding.</div>`;
+    breakdownEl.innerHTML += `<div class="denom-note">Plus \u20B90.${paise.toString().padStart(2,'0')} in coins/rounding.</div>`;
   }
 }
+document.getElementById('discountAmt').addEventListener('input', (e)=>{
+  customers[activeCustomerIdx].discount = e.target.value;
+  updateChange();
+});
 document.getElementById('cashReceived').addEventListener('input', updateChange);
 
 function renderBill(){
@@ -2163,8 +2222,7 @@ function renderBill(){
   bill.forEach((line, idx)=>{
     const item = items[line.itemIdx];
     if(!item) return;
-    const baseQty = toBaseQty(line.qty, line.unit, item.type);
-    const amount = baseQty * item.rate;
+    const amount = lineAmount(line, item);
     total += amount;
 
     const tr = document.createElement('tr');
@@ -2190,7 +2248,7 @@ function renderBill(){
         </div>
       </td>
       <td class="num">₹${item.rate}${item.type === 'packet' ? '/pc' : '/' + unitLabel(item.type)}</td>
-      <td class="num">₹${amount.toFixed(2)}</td>
+      <td class="num">${(item.type === 'packet' || !(item.rate > 0)) ? '₹' + amount.toFixed(2) : `<div class="amtbox"><span>₹</span><input type="number" min="0" step="any" class="amtInput" data-idx="${idx}" value="${amount.toFixed(2)}" aria-label="Amount in rupees"></div>`}</td>
       <td><button class="ghost removeBtn" data-idx="${idx}">x</button></td>
     `;
     tbody.appendChild(tr);
@@ -2204,6 +2262,32 @@ function renderBill(){
       applyStockDelta(line.itemIdx, line.qty, line.unit, +1);
       applyStockDelta(line.itemIdx, newQty, line.unit, -1);
       line.qty = newQty;
+      delete line.fixedAmount;
+      updateTotalsOnly();
+      renderRates();
+      scheduleSave();
+    });
+  });
+  // loose items: type the rupees ("10 rs ka soda") and the weight / litres are worked out from the rate
+  tbody.querySelectorAll('.amtInput').forEach(inp=>{
+    inp.addEventListener('focus', ()=>{ try{ inp.select(); }catch(e){} });
+    inp.addEventListener('input', e=>{
+      const idx = parseInt(e.target.dataset.idx);
+      const line = activeBill()[idx];
+      const item = line && items[line.itemIdx];
+      if(!item || !(item.rate > 0)) return;
+      const amountTyped = Math.max(0, parseFloat(e.target.value) || 0);
+      const baseQty = amountTyped / item.rate;                       // kg or litres
+      const small = item.type === 'weight' ? 'g' : 'ml', big = item.type === 'weight' ? 'kg' : 'l';
+      const newUnit = baseQty < 1 ? small : big;                    // under 1 kg shows as grams, under 1 litre as ml
+      const raw = fromBaseQty(baseQty, newUnit, item.type);
+      const newQty = newUnit === big ? Math.round(raw * 1000) / 1000 : Math.round(raw);   // kg / litres to 3 decimals, grams / ml to whole numbers
+      applyStockDelta(line.itemIdx, line.qty, line.unit, +1);
+      line.unit = newUnit; line.qty = newQty; line.fixedAmount = amountTyped;
+      applyStockDelta(line.itemIdx, line.qty, line.unit, -1);
+      const row = e.target.closest('tr');
+      const qi = row.querySelector('.qtyInput'); if(qi) qi.value = newQty;
+      const us = row.querySelector('.unitSelect'); if(us) us.value = newUnit;
       updateTotalsOnly();
       renderRates();
       scheduleSave();
@@ -2217,6 +2301,7 @@ function renderBill(){
       applyStockDelta(line.itemIdx, line.qty, line.unit, +1);
       applyStockDelta(line.itemIdx, newQty, line.unit, -1);
       line.qty = newQty;
+      delete line.fixedAmount;
       renderBill();
       renderRates();
       scheduleSave();
@@ -2230,6 +2315,7 @@ function renderBill(){
       applyStockDelta(line.itemIdx, line.qty, line.unit, +1);
       applyStockDelta(line.itemIdx, newQty, line.unit, -1);
       line.qty = newQty;
+      delete line.fixedAmount;
       renderBill();
       renderRates();
       scheduleSave();
@@ -2241,6 +2327,7 @@ function renderBill(){
       const line = activeBill()[idx];
       applyStockDelta(line.itemIdx, line.qty, line.unit, +1);
       line.unit = e.target.value;
+      delete line.fixedAmount;
       applyStockDelta(line.itemIdx, line.qty, line.unit, -1);
       renderBill();
       renderRates();
@@ -2261,6 +2348,9 @@ function renderBill(){
     });
   });
 
+  document.getElementById('amtHint').style.display = bill.some(l => { const it = items[l.itemIdx]; return it && it.type !== 'packet'; }) ? 'block' : 'none';
+  const discEl = document.getElementById('discountAmt');
+  if(document.activeElement !== discEl){ const dv = customers[activeCustomerIdx].discount; discEl.value = (dv === undefined || dv === null || dv === '' || Number(dv) === 0) ? '' : dv; }
   document.getElementById('itemCount').textContent = bill.length;
   document.getElementById('totalAmt').textContent = `₹${total.toFixed(2)}`;
   document.getElementById('dateLine').textContent = new Date().toLocaleString('en-IN');
@@ -2276,11 +2366,14 @@ function updateTotalsOnly(){
   bill.forEach((line, idx)=>{
     const item = items[line.itemIdx];
     if(!item) return;
-    const baseQty = toBaseQty(line.qty, line.unit, item.type);
-    const amount = baseQty * item.rate;
+    const amount = lineAmount(line, item);
     total += amount;
     const row = tbody.children[idx];
-    if(row){ row.children[3].textContent = `₹${amount.toFixed(2)}`; }
+    if(row){
+      const cell = row.children[3], box = cell.querySelector('.amtInput');
+      if(box){ if(document.activeElement !== box) box.value = amount.toFixed(2); }
+      else cell.textContent = `₹${amount.toFixed(2)}`;
+    }
   });
   document.getElementById('totalAmt').textContent = `₹${total.toFixed(2)}`;
   currentTotal = total;
@@ -2404,6 +2497,8 @@ document.getElementById('sortMode').addEventListener('change', (e)=>{
 
 document.getElementById('clearBtn').addEventListener('click', ()=>{
   setActiveBill([]);
+  customers[activeCustomerIdx].discount = 0;
+  document.getElementById('discountAmt').value = '';
   document.getElementById('cashReceived').value = '';
   renderBill();
   renderRates();
@@ -2418,18 +2513,20 @@ function buildBillData(){
   bill.forEach(line=>{
     const item = items[line.itemIdx];
     if(!item) return;
-    const baseQty = toBaseQty(line.qty, line.unit, item.type);
-    const amount = baseQty * item.rate;
+    const amount = lineAmount(line, item);
     total += amount;
     lines.push({ text: `${itemDisplayName(item)} — ${line.qty}${line.unit}`, amount });
   });
+  const discount = activeDiscountFor(total);
   return {
     shopLine: shopName || '',
     custLine: (activeCustomer.label && activeCustomer.label.trim()) ? `Customer: ${activeCustomer.label.trim()}` : '',
     dateStr: new Date().toLocaleString('en-IN'),
     lines,
     itemCount: bill.length,
-    total
+    total,
+    discount,
+    payable: total - discount
   };
 }
 
@@ -2455,7 +2552,13 @@ document.getElementById('printBtn').addEventListener('click', ()=>{
   });
   html += `<div class="psep"></div>`;
   html += `<div class="pline"><span>Items Billed</span><span>${data.itemCount}</span></div>`;
-  html += `<div class="ptotal"><span>Total</span><span>\u20B9${data.total.toFixed(2)}</span></div>`;
+  if(data.discount > 0){
+    html += `<div class="pline"><span>Total</span><span>\u20B9${data.total.toFixed(2)}</span></div>`;
+    html += `<div class="pline"><span>Discount</span><span>-\u20B9${data.discount.toFixed(2)}</span></div>`;
+    html += `<div class="ptotal"><span>To Pay</span><span>\u20B9${data.payable.toFixed(2)}</span></div>`;
+  } else {
+    html += `<div class="ptotal"><span>Total</span><span>\u20B9${data.total.toFixed(2)}</span></div>`;
+  }
   html += '</div>';
   area.innerHTML = html;
 
@@ -2470,7 +2573,7 @@ document.getElementById('saveImageBtn').addEventListener('click', async ()=>{
   const width = 640;
   const lineHeight = 34;
   const headerHeight = 150;
-  const footerHeight = 90;
+  const footerHeight = 90 + (data.discount > 0 ? 70 : 0);
   const height = headerHeight + (data.lines.length * lineHeight) + footerHeight;
 
   const canvas = document.createElement('canvas');
@@ -2515,10 +2618,20 @@ document.getElementById('saveImageBtn').addEventListener('click', async ()=>{
   ctx.beginPath(); ctx.moveTo(30, y); ctx.lineTo(width - 30, y); ctx.stroke();
   y += 34;
 
+  if(data.discount > 0){
+    ctx.font = '17px Inter, Arial, sans-serif';
+    ctx.fillStyle = '#1a1a1a';
+    [['Total', `₹${data.total.toFixed(2)}`], ['Discount', `-₹${data.discount.toFixed(2)}`]].forEach(pair=>{
+      ctx.fillText(pair[0], 30, y);
+      ctx.fillText(pair[1], width - 30 - ctx.measureText(pair[1]).width, y);
+      y += 34;
+    });
+    y += 4;
+  }
   ctx.font = 'bold 22px Poppins, Arial, sans-serif';
   ctx.fillStyle = '#1a1a1a';
-  ctx.fillText('Total', 30, y);
-  const totalText = `₹${data.total.toFixed(2)}`;
+  ctx.fillText(data.discount > 0 ? 'To Pay' : 'Total', 30, y);
+  const totalText = `₹${(data.discount > 0 ? data.payable : data.total).toFixed(2)}`;
   const totalWidth = ctx.measureText(totalText).width;
   ctx.fillText(totalText, width - 30 - totalWidth, y);
 
