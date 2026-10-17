@@ -969,8 +969,10 @@ const TRANSLATIONS = {
     bcCancel: 'Cancel',
     bcSearch: 'Type the product name',
     bcLinked: 'Barcode linked',
-    bcLinkedSheet: 'Barcode saved to your sheet, and the product was added to the bill.',
-    bcLinkedLocal: 'Barcode saved on this phone, and the product was added to the bill.',
+    bcLinkedSheet: 'Barcode saved to your sheet, so every phone will know it. The product was added to the bill.',
+    bcLinkSaving: 'Saving the barcode to your sheet...',
+    bcLinkedFail: 'Barcode saved on this phone only. It could not be saved to your sheet, so other phones will not know it. The product was added to the bill.',
+    bcLinkedLocal: 'Barcode saved on this phone only (the sheet of this shop is not set up for barcodes yet), so other phones will not know it. The product was added to the bill.',
     bcCamDenied: 'Camera permission is needed. Allow the camera for Quick Bill in your phone or browser settings, then open the scanner again.',
     bcNoCamera: 'No camera could be opened on this phone.',
     bcOffline: 'This phone has no built-in barcode reader, and the internet is off. Turn the internet on once and try again.',
@@ -1035,8 +1037,10 @@ const TRANSLATIONS = {
     bcCancel: 'रद्द करें',
     bcSearch: 'सामान का नाम लिखें',
     bcLinked: 'बारकोड जुड़ गया',
-    bcLinkedSheet: 'बारकोड आपकी शीट में सेव हो गया और सामान बिल में जुड़ गया।',
-    bcLinkedLocal: 'बारकोड इस फ़ोन में सेव हो गया और सामान बिल में जुड़ गया।',
+    bcLinkedSheet: 'बारकोड आपकी शीट में सेव हो गया, अब हर फ़ोन को पता चलेगा। सामान बिल में जुड़ गया।',
+    bcLinkSaving: 'बारकोड आपकी शीट में सेव हो रहा है...',
+    bcLinkedFail: 'बारकोड सिर्फ़ इस फ़ोन में सेव हुआ, शीट में सेव नहीं हो सका। दूसरे फ़ोन को पता नहीं चलेगा। सामान बिल में जुड़ गया।',
+    bcLinkedLocal: 'बारकोड सिर्फ़ इस फ़ोन में सेव हुआ (इस दुकान की शीट अभी बारकोड के लिए तैयार नहीं है), दूसरे फ़ोन को पता नहीं चलेगा। सामान बिल में जुड़ गया।',
     bcCamDenied: 'कैमरे की अनुमति चाहिए। फ़ोन या ब्राउज़र की सेटिंग में Quick Bill के लिए कैमरा चालू करें, फिर स्कैनर दोबारा खोलें।',
     bcNoCamera: 'इस फ़ोन पर कैमरा नहीं खुल सका।',
     bcOffline: 'इस फ़ोन में बारकोड रीडर नहीं है और इंटरनेट भी बंद है। एक बार इंटरनेट चालू करके फिर कोशिश करें।',
@@ -3058,26 +3062,36 @@ document.getElementById('scanFileGallery').addEventListener('change', (e)=>{
   }
   function linkCode(code, idx){
     const it = items[idx]; if(!it) return;
-    const links = loadLinks(); links[normCode(code)] = it.name; saveLinks(links);
-    let toSheet = false;
-    // Only send it to the sheet when the sheet's script says it understands barcodes.
-    // An older script would mistake the request for a full catalog save.
-    if(sheetUrl && sheetBarcodeSupport){
-      toSheet = true;
-      fetch(sheetUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'setBarcode', name: it.name, barcode: String(code) }) })
-        .then(r => r.text())
-        .then(t => { try{ const j = JSON.parse(t); if(j && j.ok){ it.barcode = splitCodes(it.barcode).concat([String(code)]).join(', '); scheduleSaveLocalOnly(); } }catch(e){} })
-        .catch(() => {});
-    }
+    const links = loadLinks(); links[normCode(code)] = it.name; saveLinks(links);   // always remembered on this phone
     paused = false;
     lastCode = String(code); lastSeen = Date.now();   // the barcode is still in front of the camera: do not add it a second time
+    const willSendToSheet = !!(sheetUrl && sheetBarcodeSupport);
+    let panel = null;
     if(addToBill(idx)){
       beepOk(); addedCount++; updateCount();
       const line = activeBill().find(l => l.itemIdx === idx);
-      box('ok', T('bcLinked'), it.name, (toSheet ? T('bcLinkedSheet') : T('bcLinkedLocal')) + (line ? '  (' + T('bcInBill') + ': ' + line.qty + ' ' + line.unit + ')' : ''));
+      const inBill = line ? '  (' + T('bcInBill') + ': ' + line.qty + ' ' + line.unit + ')' : '';
+      panel = box('ok', T('bcLinked'), it.name, (willSendToSheet ? T('bcLinkSaving') : T('bcLinkedLocal')) + inBill);
+      panel._inBill = inBill;
     } else {
       beepBad(); showEmpty(it);
+    }
+    // Send it to the sheet so every other phone gets it too. This is only attempted when the sheet's script
+    // says it understands barcodes (an older script would mistake the request for a full catalog save).
+    // The message is updated only after the sheet has really answered.
+    if(willSendToSheet){
+      const say = txt => { if(panel && panel.isConnected){ const sub = panel.querySelector('.bc-sub'); if(sub) sub.textContent = txt + (panel._inBill || ''); } };
+      fetch(sheetUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'setBarcode', name: it.name, barcode: String(code) }) })
+        .then(r => r.text())
+        .then(t => {
+          let j = null; try{ j = JSON.parse(t); }catch(e){}
+          if(j && j.ok){
+            it.barcode = splitCodes(it.barcode).concat([String(code)]).join(', '); scheduleSaveLocalOnly();
+            say(T('bcLinkedSheet'));
+          } else { say(T('bcLinkedFail')); }
+        })
+        .catch(() => say(T('bcLinkedFail')));
     }
   }
 
