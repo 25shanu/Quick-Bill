@@ -1187,6 +1187,7 @@ function shopKey(name){ return 'shop:' + name.toLowerCase().trim(); }
 
 let sheetUrl = ''; // this shop's connected Google Sheet web app URL, if any
 var sheetBarcodeSupport = false; // true once the sheet's script says it understands barcodes
+var sheetStockSync = false;      // true once the sheet's script can record stock changes
 let locked = false; // set by your service provider from the admin dashboard when payment isn't done
 let lockedBecauseOfDeviceOnly = false; // true when only THIS device is locked, not the whole shop — shown with different wording
 let shopCode = null; // the unique 4-digit code this shop was verified with — used for all registry lookups instead of the (possibly duplicated) shop name
@@ -1739,6 +1740,7 @@ function updateSheetUiState(){
 
 async function pullFromSheet(showStatus, retry){
   if(!sheetUrl) return;
+  const epochAtStart = stockEpoch;
   if(showStatus) setSheetStatus('Pulling latest from your sheet…');
   try{
     const response = await fetch(sheetUrl);
@@ -1789,7 +1791,23 @@ async function pullFromSheet(showStatus, retry){
     // slow, not the network request itself. This check makes a no-change
     // poll effectively free.
     sheetBarcodeSupport = (data.barcodeSupport === true);
+    sheetStockSync = (data.stockSync === true);
+    if(sheetStockSync){
+      // the sheet holds the shared stock; add what this phone has sold but the sheet has not confirmed yet.
+      // If a confirmation landed while this answer was on its way, the answer may be out of date: keep the newer local numbers.
+      ensurePendingLoaded();
+      const localByName = {}; items.forEach(it => { localByName[it.name] = it; });
+      const stale = (stockEpoch !== epochAtStart);
+      freshItems.forEach(it => {
+        const local = localByName[it.name];
+        it.stock = (stale && local) ? local.stock : Math.max(0, round4(it.stock + stockFor(it.name)));
+      });
+    }
     const changed = JSON.stringify(freshItems) !== JSON.stringify(items);
+    // the bill only needs rebuilding when something it shows changed (not for a stock-only change),
+    // so a stock update from another phone never interrupts typing in the bill
+    const billShape = list => JSON.stringify(list.map(i => [i.name, i.rate, i.type, i.barcode]));
+    const billChanged = billShape(freshItems) !== billShape(items);
     items = freshItems;
 
     if(typeof data.locked === 'boolean') sheetLockedValue = data.locked;
@@ -1800,9 +1818,10 @@ async function pullFromSheet(showStatus, retry){
     if(changed){
       renderRates();
       renderFavStrip();
-      renderBill();
+      if(billChanged) renderBill();
     }
     scheduleSaveLocalOnly();
+    scheduleStockFlush(1500);
     recomputeLockState();
     if(showStatus) setSheetStatus(changed ? `Loaded ${items.length} items from your sheet.` : `Already up to date (${items.length} items).`, 'ok');
     scheduleNextPoll();
@@ -1854,6 +1873,7 @@ document.getElementById('connectSheetBtn').addEventListener('click', async ()=>{
     // the link actually works — only now do we commit to it and lock the field
     sheetUrl = url;
     sheetBarcodeSupport = (data.barcodeSupport === true);
+    sheetStockSync = (data.stockSync === true);
     items = data.items.map(it => ({
       aliases: Array.isArray(it.aliases) ? it.aliases : [],
       name: it.name || 'Unnamed item',
@@ -2058,7 +2078,7 @@ function renderRates(){
 
   sorted.forEach(({it, idx})=>{
     const perLabel = it.type === 'packet' ? 'per pc' : `per ${unitLabel(it.type)}`;
-    const stockDisplay = it.stock <= 0 ? 'Stock Empty' : it.stock;
+    const stockDisplay = it.stock <= 0 ? 'Stock Empty' : Math.round(it.stock * 1000) / 1000;
     const tr = document.createElement('tr');
     tr.className = 'rate-row' + (it.stock <= 0 ? ' out-of-stock' : '');
     tr.innerHTML = `
@@ -2147,8 +2167,108 @@ function applyStockDelta(itemIdx, qty, unit, sign){
   const item = items[itemIdx];
   if(!item) return;
   const baseQty = toBaseQty(qty, unit, item.type);
+  const before = item.stock;
   item.stock = Math.max(0, item.stock + sign * baseQty);
+  recordStockChange(item.name, item.stock - before);   // every way of adding or removing goes through here, barcode included
 }
+
+// ---- stock that stays correct on every phone of the shop ----
+// Every change to stock (a sale, or an item taken off the bill) is sent to the shop's sheet as a
+// small "plus / minus" instead of a whole new number, so two phones selling at the same time never
+// overwrite each other. Changes wait on the phone until the sheet confirms them (also with no internet),
+// and a request that is sent twice is applied only once. The other phones are told through Firebase and
+// refresh their stock within a few seconds.
+const round4 = v => Math.round(v * 10000) / 10000;
+let pendingStock = {};       // changes not sent yet, by product name, in kg / litres / pieces (negative = sold)
+let inflightStock = null;    // { id, changes } sent but not yet confirmed
+let pendingFor = null;       // which shop the two above belong to
+let stockEpoch = 0, stockFlushTimer = null, stockFlushFails = 0, stockFlushing = false, stockPullTimer = null;
+
+const pendingStoreKey = () => 'qb-pending-stock:' + String(shopName || '').toLowerCase().trim();
+function ensurePendingLoaded(){
+  if(pendingFor === shopName) return;
+  pendingFor = shopName;
+  pendingStock = {}; inflightStock = null;
+  try{
+    const o = JSON.parse(localStorage.getItem(pendingStoreKey()) || 'null');
+    if(o){ pendingStock = o.pending || {}; inflightStock = o.inflight || null; }
+  }catch(e){}
+}
+function persistPendingStock(){
+  try{
+    if(!Object.keys(pendingStock).length && !inflightStock) localStorage.removeItem(pendingStoreKey());
+    else localStorage.setItem(pendingStoreKey(), JSON.stringify({ pending: pendingStock, inflight: inflightStock }));
+  }catch(e){}
+}
+function recordStockChange(name, delta){
+  if(!sheetUrl || !sheetStockSync || !name || !delta) return;
+  ensurePendingLoaded();
+  const v = round4((pendingStock[name] || 0) + delta);
+  if(Math.abs(v) < 0.00005) delete pendingStock[name]; else pendingStock[name] = v;
+  persistPendingStock();
+  scheduleSave();                 // keeps this phone's own copy right, even if the app is closed straight away
+  scheduleStockFlush(900);
+}
+function scheduleStockFlush(ms){
+  clearTimeout(stockFlushTimer);
+  stockFlushTimer = setTimeout(flushStock, ms);
+}
+function stockFor(name){            // what is on this phone but not yet confirmed by the sheet
+  return (pendingStock[name] || 0) + ((inflightStock && inflightStock.changes[name]) || 0);
+}
+async function flushStock(){
+  if(stockFlushing || !sheetUrl || !sheetStockSync) return;
+  ensurePendingLoaded();
+  if(!inflightStock){
+    if(!Object.keys(pendingStock).length) return;
+    inflightStock = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8), changes: pendingStock };
+    pendingStock = {};
+    persistPendingStock();
+  }
+  stockFlushing = true;
+  let ok = false;
+  try{
+    const response = await fetch(sheetUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'adjustStock', id: inflightStock.id,
+        changes: Object.keys(inflightStock.changes).map(n => ({ name: n, delta: inflightStock.changes[n] })) }) });
+    const text = await response.text();
+    let j = null; try{ j = JSON.parse(text); }catch(e){}
+    if(j && j.ok){
+      ok = true;
+      inflightStock = null; stockFlushFails = 0; stockEpoch++;
+      persistPendingStock();
+      if(j.stocks){
+        items.forEach(it => {
+          if(j.stocks[it.name] !== undefined) it.stock = Math.max(0, round4(Number(j.stocks[it.name]) + stockFor(it.name)));
+        });
+        renderRates(); renderFavStrip(); scheduleSaveLocalOnly();
+      }
+      pingStockChange();
+    } else {
+      stockFlushFails++;
+      if(j && j.error && stockFlushFails >= 6){ inflightStock = null; persistPendingStock(); }   // a request the sheet keeps refusing is dropped, so it cannot block the next ones
+    }
+  }catch(err){
+    stockFlushFails++;
+  }
+  stockFlushing = false;
+  if(ok){ if(Object.keys(pendingStock).length) scheduleStockFlush(300); }
+  else if(inflightStock || Object.keys(pendingStock).length) scheduleStockFlush(Math.min(60000, 2000 * Math.pow(2, Math.min(stockFlushFails, 5))));
+}
+// tell the other phones that stock changed
+function pingStockChange(){
+  if(!firebaseConfigured() || !shopCode) return;
+  try{
+    if(!fbApp) fbApp = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(FIREBASE_CONFIG);
+    firebase.database().ref('shops/' + fbShopKey(shopCode) + '/stockPing').set({ by: getOrCreateDeviceId(), t: firebase.database.ServerValue.TIMESTAMP }).catch(()=>{});
+  }catch(err){}
+}
+function scheduleStockPull(){
+  clearTimeout(stockPullTimer);
+  stockPullTimer = setTimeout(()=>{ if(shopName && sheetUrl) pullFromSheet(false); }, 250);
+}
+window.addEventListener('online', ()=> scheduleStockFlush(500));
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') scheduleStockFlush(500); });
 
 let currentTotal = 0;
 let currentPayable = 0;
@@ -2774,6 +2894,7 @@ function fbShopKey(code){
 
 let fbApp = null;
 let fbLockRef = null;
+let fbStockRef = null;
 let fbDeviceLockRef = null;
 let fbDeviceRevokedRef = null;
 let fbConnRef = null;     // Firebase's own "am I connected right now" signal
@@ -2818,6 +2939,17 @@ function startFirebaseLockListener(){
     fbDeviceLockRef.on('value', (snapshot)=>{
       fbDeviceLockedValue = snapshot.val() === true;
       recomputeLockState();
+    });
+
+    // another phone of this shop recorded a sale: refresh stock within a moment
+    if(fbStockRef) fbStockRef.off();
+    fbStockRef = firebase.database().ref(shopBase + '/stockPing');
+    let firstStockValue = true;
+    fbStockRef.on('value', (snapshot)=>{
+      if(firstStockValue){ firstStockValue = false; return; }   // the value that was already there when we connected
+      const v = snapshot.val();
+      if(!v || v.by === deviceId) return;                          // our own change
+      scheduleStockPull();
     });
 
     fbDeviceRevokedRef = firebase.database().ref(shopBase + '/devices/' + deviceId + '/revoked');
@@ -2874,8 +3006,10 @@ function stopFirebaseLockListener(){
   } catch(err){}
   fbConnRef = null; fbOnlineRef = null; fbChangedRef = null;
   if(fbLockRef) fbLockRef.off();
+  if(fbStockRef) fbStockRef.off();
   if(fbDeviceLockRef) fbDeviceLockRef.off();
   if(fbDeviceRevokedRef) fbDeviceRevokedRef.off();
+  fbStockRef = null;
   fbLockRef = null;
   fbDeviceLockRef = null;
   fbDeviceRevokedRef = null;
