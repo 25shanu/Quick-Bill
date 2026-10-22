@@ -1085,7 +1085,7 @@ const TRANSLATIONS = {
     waPic: 'Send bill with QR (picture)',
     waBadNumber: 'Enter a 10-digit mobile number, or leave it empty and pick the contact in WhatsApp.',
     waNoShare: 'This phone cannot share a picture from here. Use Save As JPEG, or send as message.',
-    waHint: 'Picture: choose WhatsApp and the customer in the list that opens. The bill and the QR with the exact amount are on the picture. Text: opens the chat with the number typed above, with a payment link in the message.',
+    waHint: 'Picture: choose WhatsApp and the customer in the list that opens. The bill and the QR with the exact amount are on the picture. Text: opens the chat with the number typed above, with the bill and your UPI ID.',
     discountTooBig: 'Discount cannot be more than the total.',
     amtHint: 'For loose items, type the rupees in the Amount box and the weight or litres fill in automatically.',
     changeToReturn: 'Change To Return',
@@ -1178,7 +1178,7 @@ const TRANSLATIONS = {
     waPic: 'QR के साथ बिल भेजें (फोटो)',
     waBadNumber: '10 अंकों का मोबाइल नंबर लिखें, या खाली छोड़कर WhatsApp में संपर्क चुनें।',
     waNoShare: 'इस फ़ोन से यहाँ से फोटो शेयर नहीं हो सकती। Save As JPEG इस्तेमाल करें, या मैसेज में भेजें।',
-    waHint: 'फोटो: खुलने वाली सूची में WhatsApp और ग्राहक चुनें। फोटो पर बिल और सही राशि वाला QR होता है। टेक्स्ट: ऊपर लिखे नंबर की चैट खुलेगी, मैसेज में पेमेंट लिंक के साथ।',
+    waHint: 'फोटो: खुलने वाली सूची में WhatsApp और ग्राहक चुनें। फोटो पर बिल और सही राशि वाला QR होता है। टेक्स्ट: ऊपर लिखे नंबर की चैट खुलेगी, मैसेज में बिल और आपकी UPI ID होगी।',
     discountTooBig: 'छूट कुल राशि से ज़्यादा नहीं हो सकती।',
     amtHint: 'खुले सामान के लिए Amount में रुपये लिखें, वज़न या लीटर अपने आप भर जाएगा।',
     changeToReturn: 'वापस देने की राशि',
@@ -3645,13 +3645,6 @@ function openExternal(url){
   document.body.appendChild(a); a.click();
   setTimeout(() => { if(a.parentNode) a.parentNode.removeChild(a); }, 500);
 }
-// a web page (pay.html next to the app) that opens the customer's UPI app with the exact amount; WhatsApp makes it a tappable link
-function payLink(data, cfg){
-  if(!(cfg.id && data.payable > 0)) return '';
-  try{
-    return new URL('pay.html', location.href).href + '?pa=' + encodeURIComponent(cfg.id) + '&pn=' + encodeURIComponent(data.shopLine || 'Shop') + '&am=' + data.payable.toFixed(2);
-  }catch(e){ return ''; }
-}
 function waMessage(data, cfg){
   const rs = v => '\u20B9' + v.toFixed(2);
   let t = '*' + (data.shopLine || 'Bill').toUpperCase() + '*\n' + data.dateStr + '\n';
@@ -3663,8 +3656,6 @@ function waMessage(data, cfg){
   else t += '*Total ' + rs(data.total) + '*\n';
   if(cfg.id && data.payable > 0){
     t += '\nPay by UPI: ' + cfg.id + '\n';
-    const link = payLink(data, cfg);
-    if(link) t += 'Pay \u20B9' + data.payable.toFixed(2) + ' online: ' + link + '\n';
   }
   t += '\nThank you! Visit again.\n\u0927\u0928\u094D\u092F\u0935\u093E\u0926!';
   return t;
@@ -3750,8 +3741,7 @@ function waMessage(data, cfg){
         const canvas = drawBillCanvas(d);
         const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.92));
         const file = new File([blob], 'bill-' + Date.now() + '.jpg', { type: 'image/jpeg' });
-        const link = payLink(d, cfg);
-        const caption = (d.shopLine || 'Bill') + ' - ' + (d.discount > 0 ? 'To Pay ' : 'Total ') + '\u20B9' + (d.discount > 0 ? d.payable : d.total).toFixed(2) + (link ? '\nPay online: ' + link : '');
+        const caption = (d.shopLine || 'Bill') + ' - ' + (d.discount > 0 ? 'To Pay ' : 'Total ') + '\u20B9' + (d.discount > 0 ? d.payable : d.total).toFixed(2) + (cfg.id && d.payable > 0 ? '\nPay by UPI: ' + cfg.id : '');
         if(navigator.canShare && navigator.canShare({ files: [file] })){ await navigator.share({ files: [file], title: 'Bill', text: caption }); }
         else err.textContent = T('waNoShare');
       }catch(e){ if(e && e.name !== 'AbortError') err.textContent = T('waNoShare'); }
