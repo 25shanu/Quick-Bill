@@ -264,8 +264,6 @@
   .amtbox input::-webkit-outer-spin-button, .amtbox input::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
   /* tidy spacing for the hint, discount and To Pay rows */
   #amtHint{margin:10px 0 16px;}
-  .actions .share-row{display:flex; gap:10px;}
-  .actions .share-row button{flex:1 1 0; min-width:0;}
   #shOverlay{position:fixed; inset:0; z-index:4000; background:rgba(12,20,17,.55); display:none; align-items:center; justify-content:center; padding:14px;}
   .sh-card{background:var(--paper); color:var(--ink); border-radius:16px; width:100%; max-width:400px; max-height:92vh; overflow:auto; padding:18px 18px 20px; box-shadow:0 12px 40px rgba(0,0,0,.28);}
   .sh-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;}
@@ -298,7 +296,11 @@
     display:flex; justify-content:space-between; align-items:baseline;
   }
   .total .amt{font-size:32px; font-weight:800; font-family:'Courier New', monospace; color:var(--accent-dark);}
-  .actions{display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; align-items:center;}
+  /* the same layout on every screen: WhatsApp and Payment QR side by side, the other buttons full width, all the same height */
+  .actions{display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; margin-top:16px;}
+  #printBtn, #saveImageBtn, #clearBtn{grid-column:1 / -1;}
+  .actions .share-row{display:contents;}
+  .actions button{width:100%; height:50px; padding:0 10px; font-size:15px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center; text-align:center;}
   .date{font-size:12.5px; color:var(--muted); text-align:right; margin-top:8px;}
 
   .app-footer{
@@ -521,8 +523,6 @@
     .change-row input{width:100%; font-size:16px;}
     .change-due .amt{font-size:19px;}
 
-    .actions{flex-direction:column;}
-    .actions button{width:100%;}
 
     .cust-tab{font-size:13px; padding:7px 11px;}
     .add-tab{font-size:13px; padding:7px 11px;}
@@ -739,7 +739,7 @@
 
       <div class="actions">
         <div class="share-row">
-          <button class="ghost" id="whatsappBtn" data-i18n="sendWhatsapp">Send on WhatsApp</button>
+          <button class="ghost" id="whatsappBtn" data-i18n="sendWhatsapp">WhatsApp Bill</button>
           <button class="ghost" id="upiQrBtn" data-i18n="showQr">Payment QR</button>
         </div>
         <button id="printBtn" data-i18n="printBill">Print Bill</button>
@@ -1065,7 +1065,7 @@ const TRANSLATIONS = {
     cashReceived: 'Cash received',
     discountLabel: 'Discount (\u20B9)',
     toPay: 'To Pay',
-    sendWhatsapp: 'Send on WhatsApp',
+    sendWhatsapp: 'WhatsApp Bill',
     showQr: 'Payment QR',
     shTitleQr: 'Payment QR',
     shTitleWa: 'Send bill on WhatsApp',
@@ -1080,11 +1080,12 @@ const TRANSLATIONS = {
     qrEmpty: 'Add items to the bill first.',
     waNumber: 'Customer mobile number (optional)',
     waNumberPh: '10-digit number',
-    waText: 'Send as message',
-    waPic: 'Send as picture',
+    waText: 'Send as text message',
+    waPicNoQr: 'Send bill as picture',
+    waPic: 'Send bill with QR (picture)',
     waBadNumber: 'Enter a 10-digit mobile number, or leave it empty and pick the contact in WhatsApp.',
     waNoShare: 'This phone cannot share a picture from here. Use Save As JPEG, or send as message.',
-    waHint: 'WhatsApp opens with the bill ready. Tap send there. For a picture, choose WhatsApp and the customer in the list that opens.',
+    waHint: 'Picture: choose WhatsApp and the customer in the list that opens. The bill and the QR with the exact amount are on the picture. Text: opens the chat with the number typed above, with a payment link in the message.',
     discountTooBig: 'Discount cannot be more than the total.',
     amtHint: 'For loose items, type the rupees in the Amount box and the weight or litres fill in automatically.',
     changeToReturn: 'Change To Return',
@@ -1157,7 +1158,7 @@ const TRANSLATIONS = {
     cashReceived: 'नकद प्राप्त',
     discountLabel: 'छूट (\u20B9)',
     toPay: 'देय राशि',
-    sendWhatsapp: 'WhatsApp पर भेजें',
+    sendWhatsapp: 'WhatsApp बिल',
     showQr: 'पेमेंट QR',
     shTitleQr: 'पेमेंट QR',
     shTitleWa: 'बिल WhatsApp पर भेजें',
@@ -1172,11 +1173,12 @@ const TRANSLATIONS = {
     qrEmpty: 'पहले बिल में सामान जोड़ें।',
     waNumber: 'ग्राहक का मोबाइल नंबर (ज़रूरी नहीं)',
     waNumberPh: '10 अंकों का नंबर',
-    waText: 'मैसेज में भेजें',
-    waPic: 'फोटो में भेजें',
+    waText: 'टेक्स्ट मैसेज में भेजें',
+    waPicNoQr: 'बिल फोटो में भेजें',
+    waPic: 'QR के साथ बिल भेजें (फोटो)',
     waBadNumber: '10 अंकों का मोबाइल नंबर लिखें, या खाली छोड़कर WhatsApp में संपर्क चुनें।',
     waNoShare: 'इस फ़ोन से यहाँ से फोटो शेयर नहीं हो सकती। Save As JPEG इस्तेमाल करें, या मैसेज में भेजें।',
-    waHint: 'WhatsApp बिल के साथ खुलेगा, वहाँ भेजें दबाएं। फोटो के लिए खुलने वाली सूची में WhatsApp और ग्राहक चुनें।',
+    waHint: 'फोटो: खुलने वाली सूची में WhatsApp और ग्राहक चुनें। फोटो पर बिल और सही राशि वाला QR होता है। टेक्स्ट: ऊपर लिखे नंबर की चैट खुलेगी, मैसेज में पेमेंट लिंक के साथ।',
     discountTooBig: 'छूट कुल राशि से ज़्यादा नहीं हो सकती।',
     amtHint: 'खुले सामान के लिए Amount में रुपये लिखें, वज़न या लीटर अपने आप भर जाएगा।',
     changeToReturn: 'वापस देने की राशि',
@@ -1708,7 +1710,7 @@ async function startShop(){
 
 // on page load, silently resume the last logged-in shop instead of asking again —
 // only "switch shop" clears this
-(function tryAutoLogin(){
+function tryAutoLogin(){
   if(!storageAvailable) return;
   try{
     const savedName = localStorage.getItem(CURRENT_SHOP_KEY);
@@ -1725,7 +1727,7 @@ async function startShop(){
       enterApp();
     }
   } catch(err){ /* fall through to the login screen */ }
-})();
+}
 
 document.getElementById('langToggleBtn').addEventListener('click', ()=>{
   appLanguage = appLanguage === 'hi' ? 'en' : 'hi';
@@ -3634,6 +3636,22 @@ function waNumber(raw){
   if(d.length >= 11 && d.length <= 15) return d;
   return null;
 }
+// opens a link in its own place without ever taking over the app's window (window.open with "noopener"
+// returns nothing, which used to make the app itself jump to the WhatsApp page and come back logged out)
+function openExternal(url){
+  const a = document.createElement('a');
+  a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+  a.style.display = 'none';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { if(a.parentNode) a.parentNode.removeChild(a); }, 500);
+}
+// a web page (pay.html next to the app) that opens the customer's UPI app with the exact amount; WhatsApp makes it a tappable link
+function payLink(data, cfg){
+  if(!(cfg.id && data.payable > 0)) return '';
+  try{
+    return new URL('pay.html', location.href).href + '?pa=' + encodeURIComponent(cfg.id) + '&pn=' + encodeURIComponent(data.shopLine || 'Shop') + '&am=' + data.payable.toFixed(2);
+  }catch(e){ return ''; }
+}
 function waMessage(data, cfg){
   const rs = v => '\u20B9' + v.toFixed(2);
   let t = '*' + (data.shopLine || 'Bill').toUpperCase() + '*\n' + data.dateStr + '\n';
@@ -3643,7 +3661,11 @@ function waMessage(data, cfg){
   t += '\n';
   if(data.discount > 0){ t += 'Total ' + rs(data.total) + '\nDiscount -' + rs(data.discount) + '\n*To Pay ' + rs(data.payable) + '*\n'; }
   else t += '*Total ' + rs(data.total) + '*\n';
-  if(cfg.id && data.payable > 0) t += '\nPay by UPI: ' + cfg.id + '\n';
+  if(cfg.id && data.payable > 0){
+    t += '\nPay by UPI: ' + cfg.id + '\n';
+    const link = payLink(data, cfg);
+    if(link) t += 'Pay \u20B9' + data.payable.toFixed(2) + ' online: ' + link + '\n';
+  }
   t += '\nThank you! Visit again.\n\u0927\u0928\u094D\u092F\u0935\u093E\u0926!';
   return t;
 }
@@ -3720,21 +3742,24 @@ function waMessage(data, cfg){
     const err = el('div', 'sh-err', ''); body.appendChild(err);
     body.appendChild(el('p', 'sh-note', T('waHint')));
     const row = el('div', 'sh-btns');
-    row.appendChild(btn(T('waText'), false, () => {
-      const n = waNumber(inp.value);
-      if(n === null){ err.textContent = T('waBadNumber'); return; }
-      const url = 'https://wa.me/' + n + '?text=' + encodeURIComponent(waMessage(buildBillData(), loadUpi()));
-      const w = window.open(url, '_blank', 'noopener'); if(!w) location.href = url;
-    }));
-    row.appendChild(btn(T('waPic'), true, async () => {
+    const haveUpi = !!loadUpi().id;
+    row.appendChild(btn(T(haveUpi ? 'waPic' : 'waPicNoQr'), false, async () => {
       err.textContent = '';
       try{
-        const canvas = drawBillCanvas(buildBillData());
+        const d = buildBillData(), cfg = loadUpi();
+        const canvas = drawBillCanvas(d);
         const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.92));
         const file = new File([blob], 'bill-' + Date.now() + '.jpg', { type: 'image/jpeg' });
-        if(navigator.canShare && navigator.canShare({ files: [file] })){ await navigator.share({ files: [file], title: 'Bill' }); }
+        const link = payLink(d, cfg);
+        const caption = (d.shopLine || 'Bill') + ' - ' + (d.discount > 0 ? 'To Pay ' : 'Total ') + '\u20B9' + (d.discount > 0 ? d.payable : d.total).toFixed(2) + (link ? '\nPay online: ' + link : '');
+        if(navigator.canShare && navigator.canShare({ files: [file] })){ await navigator.share({ files: [file], title: 'Bill', text: caption }); }
         else err.textContent = T('waNoShare');
       }catch(e){ if(e && e.name !== 'AbortError') err.textContent = T('waNoShare'); }
+    }));
+    row.appendChild(btn(T('waText'), true, () => {
+      const n = waNumber(inp.value);
+      if(n === null){ err.textContent = T('waBadNumber'); return; }
+      openExternal('https://wa.me/' + n + '?text=' + encodeURIComponent(waMessage(buildBillData(), loadUpi())));
     }));
     body.appendChild(row);
     setTimeout(() => { try{ inp.focus(); }catch(e){} }, 60);
@@ -3747,6 +3772,11 @@ function waMessage(data, cfg){
   window.addEventListener('popstate', () => { if(isOpen) closeModal(true); });
   document.addEventListener('keydown', e => { if(e.key === 'Escape' && isOpen) closeModal(false); });
 })();
+
+// Resume the last shop now that everything above exists. This used to run earlier in the file, before some of the
+// values it needs had been created, so it failed silently and every reload (for example after Android closed the app
+// in the background) landed on the login screen.
+tryAutoLogin();
 
 // Lets the app open even with zero internet connection, instead of the
 // browser's own "No internet connection" error page — billing itself
