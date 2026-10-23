@@ -1269,6 +1269,9 @@ function shopKey(name){ return 'shop:' + name.toLowerCase().trim(); }
 let sheetUrl = ''; // this shop's connected Google Sheet web app URL, if any
 var sheetBarcodeSupport = false; // true once the sheet's script says it understands barcodes
 var sheetStockSync = false;      // true once the sheet's script can record stock changes
+var sheetSalesSupport = false;   // true once the sheet's script can save finished bills
+var salesRecordOn = false;       // the admin switched "save sales record" on for this shop
+var salesFlagKnown = false;      // true once the sheet has told us (until then the last known answer is used)
 let locked = false; // set by your service provider from the admin dashboard when payment isn't done
 let lockedBecauseOfDeviceOnly = false; // true when only THIS device is locked, not the whole shop — shown with different wording
 let shopCode = null; // the unique 4-digit code this shop was verified with — used for all registry lookups instead of the (possibly duplicated) shop name
@@ -1874,6 +1877,10 @@ async function pullFromSheet(showStatus, retry){
     // poll effectively free.
     sheetBarcodeSupport = (data.barcodeSupport === true);
     sheetStockSync = (data.stockSync === true);
+    sheetSalesSupport = (data.salesSupport === true);
+    salesRecordOn = sheetSalesSupport && data.salesRecord === true;
+    salesFlagKnown = true;
+    try{ if(salesRecordOn) localStorage.setItem(salesOnKey(), '1'); else localStorage.removeItem(salesOnKey()); }catch(e){}
     if(sheetStockSync){
       // the sheet holds the shared stock; add what this phone has sold but the sheet has not confirmed yet.
       // If a confirmation landed while this answer was on its way, the answer may be out of date: keep the newer local numbers.
@@ -1904,6 +1911,7 @@ async function pullFromSheet(showStatus, retry){
     }
     scheduleSaveLocalOnly();
     scheduleStockFlush(1500);
+    scheduleSalesFlush(2000);
     recomputeLockState();
     if(showStatus) setSheetStatus(changed ? `Loaded ${items.length} items from your sheet.` : `Already up to date (${items.length} items).`, 'ok');
     scheduleNextPoll();
@@ -1956,6 +1964,10 @@ document.getElementById('connectSheetBtn').addEventListener('click', async ()=>{
     sheetUrl = url;
     sheetBarcodeSupport = (data.barcodeSupport === true);
     sheetStockSync = (data.stockSync === true);
+    sheetSalesSupport = (data.salesSupport === true);
+    salesRecordOn = sheetSalesSupport && data.salesRecord === true;
+    salesFlagKnown = true;
+    try{ if(salesRecordOn) localStorage.setItem(salesOnKey(), '1'); else localStorage.removeItem(salesOnKey()); }catch(e){}
     items = data.items.map(it => ({
       aliases: Array.isArray(it.aliases) ? it.aliases : [],
       name: it.name || 'Unnamed item',
@@ -2352,6 +2364,97 @@ function scheduleStockPull(){
 window.addEventListener('online', ()=> scheduleStockFlush(500));
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') scheduleStockFlush(500); });
 
+// ---- sales record (only when the admin has switched it on for this shop) ----
+// There is nothing about this on the billing screen. When it is on, every finished bill is saved in the "Sales" tab of the
+// shop's sheet: one row per item. A bill counts as finished when it is printed, saved as a picture, sent on WhatsApp,
+// shown as a payment QR, or cleared for the next customer. The same bill is never saved twice; if it is changed and
+// finished again, its earlier rows are replaced. Bills wait on the phone until the sheet confirms them (also with no internet).
+const salesOnKey = () => 'qb-sales-on:' + String(shopName || '').toLowerCase().trim();
+const salesQueueKey = () => 'qb-pending-sales:' + String(shopName || '').toLowerCase().trim();
+let pendingSales = [], pendingSalesFor = null, salesFlushing = false, salesFlushFails = 0, salesFlushTimer = null;
+function salesIsOn(){
+  if(salesFlagKnown) return salesRecordOn;
+  try{ return localStorage.getItem(salesOnKey()) === '1'; }catch(e){ return false; }
+}
+function ensureSalesQueueLoaded(){
+  if(pendingSalesFor === shopName) return;
+  pendingSalesFor = shopName; pendingSales = [];
+  try{ const a = JSON.parse(localStorage.getItem(salesQueueKey()) || '[]'); if(Array.isArray(a)) pendingSales = a; }catch(e){}
+}
+function persistSalesQueue(){
+  try{
+    if(pendingSales.length) localStorage.setItem(salesQueueKey(), JSON.stringify(pendingSales));
+    else localStorage.removeItem(salesQueueKey());
+  }catch(e){}
+}
+function newSaleId(){ return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function buildSaleRecord(c){
+  const two = v => String(v).padStart(2, '0');
+  const now = new Date();
+  const lines = []; let total = 0;
+  c.bill.forEach(line => {
+    const item = items[line.itemIdx]; if(!item) return;
+    const amount = lineAmount(line, item); total += amount;
+    lines.push({ name: item.name, qty: line.qty, unit: line.unit, rate: item.rate,
+      per: item.type === 'weight' ? 'kg' : (item.type === 'volume' ? 'l' : 'pc'), amount: Math.round(amount * 100) / 100 });
+  });
+  const discount = activeDiscountFor(total);
+  const net = total - discount;
+  const rv = document.getElementById('cashReceived').value;
+  const received = rv !== '' && isFinite(parseFloat(rv)) ? parseFloat(rv) : '';
+  const change = (received !== '' && received >= net) ? Math.round((received - net) * 100) / 100 : '';
+  return { id: c.saleId, date: now.getFullYear() + '-' + two(now.getMonth() + 1) + '-' + two(now.getDate()),
+    time: two(now.getHours()) + ':' + two(now.getMinutes()) + ':' + two(now.getSeconds()),
+    device: getDeviceName(), lines, total: Math.round(total * 100) / 100, discount: Math.round(discount * 100) / 100,
+    net: Math.round(net * 100) / 100, received, change };
+}
+function finalizeSale(){
+  try{
+    if(!salesIsOn()) return;
+    const c = customers[activeCustomerIdx];
+    if(!c || !c.bill.length) return;
+    if(!c.saleId) c.saleId = newSaleId();
+    const rec = buildSaleRecord(c);
+    if(!rec.lines.length) return;
+    const sig = JSON.stringify([rec.lines.map(l => [l.name, l.qty, l.unit, l.amount]), rec.total, rec.discount, rec.net, rec.received]);
+    if(c.saleSig === sig) return;          // exactly this bill is already saved
+    c.saleSig = sig;
+    ensureSalesQueueLoaded();
+    pendingSales = pendingSales.filter(x => x.id !== rec.id);
+    pendingSales.push(rec);
+    persistSalesQueue();
+    scheduleSalesFlush(600);
+  }catch(err){}
+}
+function scheduleSalesFlush(ms){ clearTimeout(salesFlushTimer); salesFlushTimer = setTimeout(flushSales, ms); }
+async function flushSales(){
+  if(salesFlushing || !sheetUrl) return;
+  ensureSalesQueueLoaded();
+  if(!pendingSales.length) return;
+  salesFlushing = true;
+  const batch = pendingSales.slice(0, 10);
+  let ok = false;
+  try{
+    const response = await fetch(sheetUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'addSales', sales: batch }) });
+    const text = await response.text();
+    let j = null; try{ j = JSON.parse(text); }catch(e){}
+    if(j && j.ok){
+      ok = true; salesFlushFails = 0;
+      pendingSales = pendingSales.filter(x => batch.indexOf(x) === -1);   // a bill that was changed meanwhile was replaced by a newer copy and stays queued
+      persistSalesQueue();
+    } else {
+      salesFlushFails++;
+      if(j && j.error && salesFlushFails >= 6){ pendingSales = pendingSales.filter(x => batch.indexOf(x) === -1); persistSalesQueue(); }
+    }
+  }catch(err){ salesFlushFails++; }
+  salesFlushing = false;
+  if(ok){ if(pendingSales.length) scheduleSalesFlush(300); }
+  else if(pendingSales.length) scheduleSalesFlush(Math.min(60000, 2000 * Math.pow(2, Math.min(salesFlushFails, 5))));
+}
+window.addEventListener('online', ()=> scheduleSalesFlush(500));
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') scheduleSalesFlush(800); });
+
 let currentTotal = 0;
 let currentPayable = 0;
 const DENOMINATIONS = [2000, 500, 200, 100, 50, 20, 10, 5, 2, 1];
@@ -2698,6 +2801,8 @@ document.getElementById('sortMode').addEventListener('change', (e)=>{
 });
 
 document.getElementById('clearBtn').addEventListener('click', ()=>{
+  finalizeSale();
+  delete customers[activeCustomerIdx].saleId; delete customers[activeCustomerIdx].saleSig;   // the next customer is a new bill
   setActiveBill([]);
   customers[activeCustomerIdx].discount = 0;
   document.getElementById('discountAmt').value = '';
@@ -2743,6 +2848,7 @@ function escHtml(str){
 }
 
 document.getElementById('printBtn').addEventListener('click', ()=>{
+  finalizeSale();
   const data = buildBillData();
   const area = document.getElementById('printArea');
 
@@ -2861,6 +2967,7 @@ function drawBillCanvas(data){
 // opens the native "save/share" sheet on mobile (so it can be saved straight to the photo gallery)
 // or downloads it directly on desktop
 document.getElementById('saveImageBtn').addEventListener('click', async ()=>{
+  finalizeSale();
   const canvas = drawBillCanvas(buildBillData());
 
   const mimeType = 'image/jpeg';
@@ -3687,6 +3794,7 @@ function waMessage(data, cfg){
 
   // ---- Payment QR ----
   function openQr(editing){
+    finalizeSale();
     const data = buildBillData(), cfg = loadUpi();
     body.innerHTML = '';
     show(T('shTitleQr'));
@@ -3736,6 +3844,7 @@ function waMessage(data, cfg){
     const haveUpi = !!loadUpi().id;
     row.appendChild(btn(T(haveUpi ? 'waPic' : 'waPicNoQr'), false, async () => {
       err.textContent = '';
+      finalizeSale();
       try{
         const d = buildBillData(), cfg = loadUpi();
         const canvas = drawBillCanvas(d);
@@ -3749,6 +3858,7 @@ function waMessage(data, cfg){
     row.appendChild(btn(T('waText'), true, () => {
       const n = waNumber(inp.value);
       if(n === null){ err.textContent = T('waBadNumber'); return; }
+      finalizeSale();
       openExternal('https://wa.me/' + n + '?text=' + encodeURIComponent(waMessage(buildBillData(), loadUpi())));
     }));
     body.appendChild(row);
