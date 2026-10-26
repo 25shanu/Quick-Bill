@@ -297,6 +297,11 @@
   #printArea .pqr svg{display:block; margin:0 auto 1.5mm; width:62%; max-width:46mm; height:auto;}
   .change-block .change-row{margin-bottom:12px;}
   #discountNote{margin:-4px 0 12px !important;}
+  .disc-field{display:flex; align-items:stretch; gap:8px;}
+  .disc-mode{display:flex; border:1.5px solid var(--line); border-radius:8px; overflow:hidden; background:#fff; flex:0 0 auto;}
+  .disc-mode button{border:0; border-radius:0; background:transparent; color:var(--accent-dark); font-family:inherit; font-size:18px; font-weight:800; width:44px; min-height:0; height:auto; padding:0; cursor:pointer; box-shadow:none;}
+  .disc-mode button.on{background:var(--accent); color:#fff;}
+  .disc-field input{flex:1 1 auto; min-width:0;}
   #payRow{background:var(--paper2); border-radius:10px; padding:10px 14px; margin:0 0 18px;}
   #payRow .amt{font-size:21px;}
   .total{
@@ -530,6 +535,8 @@
     .total .amt{font-size:26px;}
     .change-row{flex-wrap:wrap;}
     .change-row input{width:100%; font-size:16px;}
+    .disc-field{width:100%;}
+    .disc-field input{width:auto; flex:1 1 0;}
     .change-due .amt{font-size:19px;}
 
 
@@ -727,10 +734,16 @@
 
       <div class="change-block">
         <div class="change-row">
-          <label for="discountAmt" data-i18n="discountLabel">Discount (₹)</label>
-          <input type="number" id="discountAmt" placeholder="e.g. 10" min="0" step="any">
+          <label for="discountAmt" data-i18n="discountLabel">Discount</label>
+          <div class="disc-field">
+            <div class="disc-mode" role="group" aria-label="Discount in rupees or percent">
+              <button type="button" id="discModeAmt" class="on" aria-pressed="true">₹</button>
+              <button type="button" id="discModePct" aria-pressed="false">%</button>
+            </div>
+            <input type="text" inputmode="decimal" id="discountAmt" placeholder="e.g. 10" autocomplete="off">
+          </div>
         </div>
-        <div class="hint" id="discountNote" style="display:none; margin:-4px 0 10px;" data-i18n="discountTooBig">Discount cannot be more than the total.</div>
+        <div class="hint" id="discountNote" style="display:none; margin:-4px 0 10px;"></div>
         <div class="change-row change-due" id="payRow" style="display:none;">
           <span data-i18n="toPay">To Pay</span>
           <span class="amt" id="payAmt">₹0.00</span>
@@ -1072,7 +1085,8 @@ const TRANSLATIONS = {
     itemsBilled: 'Items Billed',
     total: 'Total',
     cashReceived: 'Cash received',
-    discountLabel: 'Discount (\u20B9)',
+    discountLabel: 'Discount',
+    discountTooBigPct: 'Discount cannot be more than 100%.',
     toPay: 'To Pay',
     sendWhatsapp: 'WhatsApp Bill',
     showQr: 'Payment QR',
@@ -1165,7 +1179,8 @@ const TRANSLATIONS = {
     itemsBilled: 'कुल सामान',
     total: 'कुल राशि',
     cashReceived: 'नकद प्राप्त',
-    discountLabel: 'छूट (\u20B9)',
+    discountLabel: 'छूट',
+    discountTooBigPct: 'छूट 100% से ज़्यादा नहीं हो सकती।',
     toPay: 'देय राशि',
     sendWhatsapp: 'WhatsApp बिल',
     showQr: 'पेमेंट QR',
@@ -2468,10 +2483,13 @@ let currentTotal = 0;
 let currentPayable = 0;
 const DENOMINATIONS = [2000, 500, 200, 100, 50, 20, 10, 5, 2, 1];
 
-// discount in rupees given to the active customer (never more than the bill total)
+// discount given to the active customer: a rupee amount (never more than the bill total) or a percent of the total (never more than 100%)
+const trKey = k => { const d = TRANSLATIONS[appLanguage] || TRANSLATIONS.en; return d[k] !== undefined ? d[k] : (TRANSLATIONS.en[k] || k); };
+function discountIsPercent(){ const c = customers[activeCustomerIdx]; return !!(c && c.discountMode === 'percent'); }
 function activeDiscountFor(total){
   const c = customers[activeCustomerIdx];
   const d = Math.max(0, parseFloat(c && c.discount) || 0);
+  if(discountIsPercent()) return Math.round(total * Math.min(d, 100)) / 100;      // total x percent / 100, to the paisa
   return Math.min(d, total);
 }
 
@@ -2486,7 +2504,11 @@ function updateChange(){
   currentPayable = currentTotal - discount;
   document.getElementById('payRow').style.display = discount > 0 ? 'flex' : 'none';
   document.getElementById('payAmt').textContent = `\u20B9${currentPayable.toFixed(2)}`;
-  document.getElementById('discountNote').style.display = (typedDiscount > currentTotal && currentTotal > 0) ? 'block' : 'none';
+  const pctMode = discountIsPercent();
+  const tooBig = pctMode ? (typedDiscount > 100) : (typedDiscount > currentTotal && currentTotal > 0);
+  const noteEl = document.getElementById('discountNote');
+  noteEl.textContent = trKey(pctMode ? 'discountTooBigPct' : 'discountTooBig');
+  noteEl.style.display = tooBig ? 'block' : 'none';
 
   const change = received - currentPayable;
 
@@ -2520,8 +2542,30 @@ function updateChange(){
     breakdownEl.innerHTML += `<div class="denom-note">Plus \u20B90.${paise.toString().padStart(2,'0')} in coins/rounding.</div>`;
   }
 }
+// the two symbols before the number: ₹ for a rupee amount, % for a percent. Typing 10% or ₹10 works too.
+function syncDiscountMode(){
+  const pct = discountIsPercent();
+  const a = document.getElementById('discModeAmt'), p = document.getElementById('discModePct');
+  a.classList.toggle('on', !pct); p.classList.toggle('on', pct);
+  a.setAttribute('aria-pressed', String(!pct)); p.setAttribute('aria-pressed', String(pct));
+}
+function setDiscountMode(mode){
+  customers[activeCustomerIdx].discountMode = mode;
+  syncDiscountMode();
+  updateChange();
+}
+document.getElementById('discModeAmt').addEventListener('click', ()=> setDiscountMode('amount'));
+document.getElementById('discModePct').addEventListener('click', ()=> setDiscountMode('percent'));
 document.getElementById('discountAmt').addEventListener('input', (e)=>{
-  customers[activeCustomerIdx].discount = e.target.value;
+  const raw = e.target.value;
+  if(raw.indexOf('%') !== -1) customers[activeCustomerIdx].discountMode = 'percent';
+  else if(raw.indexOf('\u20B9') !== -1) customers[activeCustomerIdx].discountMode = 'amount';
+  let cleaned = raw.replace(/[^0-9.]/g, '');
+  const firstDot = cleaned.indexOf('.');
+  if(firstDot !== -1) cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
+  if(cleaned !== raw) e.target.value = cleaned;
+  customers[activeCustomerIdx].discount = cleaned;
+  syncDiscountMode();
   updateChange();
 });
 document.getElementById('cashReceived').addEventListener('input', updateChange);
@@ -2664,6 +2708,7 @@ function renderBill(){
 
   document.getElementById('amtHint').style.display = bill.some(l => { const it = items[l.itemIdx]; return it && it.type !== 'packet'; }) ? 'block' : 'none';
   const discEl = document.getElementById('discountAmt');
+  syncDiscountMode();
   if(document.activeElement !== discEl){ const dv = customers[activeCustomerIdx].discount; discEl.value = (dv === undefined || dv === null || dv === '' || Number(dv) === 0) ? '' : dv; }
   document.getElementById('itemCount').textContent = bill.length;
   document.getElementById('totalAmt').textContent = `₹${total.toFixed(2)}`;
@@ -2814,6 +2859,7 @@ document.getElementById('clearBtn').addEventListener('click', ()=>{
   delete customers[activeCustomerIdx].saleId; delete customers[activeCustomerIdx].saleSig;   // the next customer is a new bill
   setActiveBill([]);
   customers[activeCustomerIdx].discount = 0;
+  customers[activeCustomerIdx].discountMode = 'amount';
   document.getElementById('discountAmt').value = '';
   document.getElementById('cashReceived').value = '';
   renderBill();
@@ -2834,9 +2880,11 @@ function buildBillData(){
     lines.push({ text: `${itemDisplayName(item)} — ${line.qty}${line.unit}`, amount });
   });
   const discount = activeDiscountFor(total);
+  const pctShown = (discountIsPercent() && discount > 0) ? Math.round(Math.min(Math.max(0, parseFloat(customers[activeCustomerIdx].discount) || 0), 100) * 100) / 100 : 0;
   const upiCfg = loadUpi();
   const payableNow = total - discount;
   return {
+    discountLabel: pctShown ? 'Discount (' + pctShown + '%)' : 'Discount',
     upi: (upiCfg.id && upiCfg.onBill && payableNow > 0) ? { id: upiCfg.id, uri: upiUri(upiCfg.id, shopName || '', payableNow) } : null,
     shopLine: shopName || '',
     custLine: (activeCustomer.label && activeCustomer.label.trim()) ? `Customer: ${activeCustomer.label.trim()}` : '',
@@ -2874,7 +2922,7 @@ document.getElementById('printBtn').addEventListener('click', ()=>{
   html += `<div class="pline"><span>Items Billed</span><span>${data.itemCount}</span></div>`;
   if(data.discount > 0){
     html += `<div class="pline"><span>Total</span><span>\u20B9${data.total.toFixed(2)}</span></div>`;
-    html += `<div class="pline"><span>Discount</span><span>-\u20B9${data.discount.toFixed(2)}</span></div>`;
+    html += `<div class="pline"><span>${data.discountLabel}</span><span>-\u20B9${data.discount.toFixed(2)}</span></div>`;
     html += `<div class="ptotal"><span>To Pay</span><span>\u20B9${data.payable.toFixed(2)}</span></div>`;
   } else {
     html += `<div class="ptotal"><span>Total</span><span>\u20B9${data.total.toFixed(2)}</span></div>`;
@@ -2941,7 +2989,7 @@ function drawBillCanvas(data){
   if(data.discount > 0){
     ctx.font = '17px Inter, Arial, sans-serif';
     ctx.fillStyle = '#1a1a1a';
-    [['Total', `₹${data.total.toFixed(2)}`], ['Discount', `-₹${data.discount.toFixed(2)}`]].forEach(pair=>{
+    [['Total', `₹${data.total.toFixed(2)}`], [data.discountLabel, `-₹${data.discount.toFixed(2)}`]].forEach(pair=>{
       ctx.fillText(pair[0], 30, y);
       ctx.fillText(pair[1], width - 30 - ctx.measureText(pair[1]).width, y);
       y += 34;
@@ -3768,7 +3816,7 @@ function waMessage(data, cfg){
   t += '\n';
   data.lines.forEach(l => { t += l.text + '  ' + rs(l.amount) + '\n'; });
   t += '\n';
-  if(data.discount > 0){ t += 'Total ' + rs(data.total) + '\nDiscount -' + rs(data.discount) + '\n*To Pay ' + rs(data.payable) + '*\n'; }
+  if(data.discount > 0){ t += 'Total ' + rs(data.total) + '\n' + data.discountLabel + ' -' + rs(data.discount) + '\n*To Pay ' + rs(data.payable) + '*\n'; }
   else t += '*Total ' + rs(data.total) + '*\n';
   if(cfg.id && data.payable > 0){
     t += '\nPay by UPI: ' + cfg.id + '\n';
