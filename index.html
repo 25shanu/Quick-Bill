@@ -187,6 +187,14 @@
   @media (max-width:760px){
     .rate-panel-scroll{height:60vh;}
   }
+  /* desktop: the two panels always have the same height. New Bill sets the height (it grows as items are added and shrinks again
+     when they are removed) and the rates list scrolls inside the space that is left, with the same padding as New Bill */
+  @media (min-width:761px){
+    .grid{align-items:stretch;}
+    .rates-col{display:flex; flex-direction:column;}
+    .rates-col .rate-panel-scroll{position:relative; flex:1 1 auto; height:auto; min-height:clamp(240px, 36vh, 520px); overflow:visible;}
+    .rates-col .rate-panel-inner{position:absolute; inset:0; overflow:auto; -webkit-overflow-scrolling:touch;}
+  }
 
   .sheet-connect{margin-bottom:12px;}
   .sheet-connect-row{display:flex; gap:8px;}
@@ -298,7 +306,8 @@
   .total .amt{font-size:32px; font-weight:800; font-family:'Courier New', monospace; color:var(--accent-dark);}
   /* the same layout on every screen: WhatsApp and Payment QR side by side, the other buttons full width, all the same height */
   .actions{display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; margin-top:16px;}
-  #printBtn, #saveImageBtn, #clearBtn{grid-column:1 / -1;}
+  #clearBtn{grid-column:1 / -1;}
+  @media (max-width:760px){ #printBtn, #saveImageBtn{grid-column:1 / -1;} }
   .actions .share-row{display:contents;}
   .actions button{width:100%; height:50px; padding:0 10px; font-size:15px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center; text-align:center;}
   .date{font-size:12.5px; color:var(--muted); text-align:right; margin-top:8px;}
@@ -762,12 +771,12 @@
         </select>
       </div>
 
-      <div class="rate-panel-scroll">
+      <div class="rate-panel-scroll"><div class="rate-panel-inner">
         <table>
           <thead><tr><th></th><th data-i18n="colItem">Item</th><th class="num" data-i18n="colRate">Rate</th><th class="num" data-i18n="colStock">Stock</th><th></th></tr></thead>
           <tbody id="rateTable"></tbody>
         </table>
-      </div>
+      </div></div>
       <div class="empty-msg" id="rateEmptyMsg" style="display:none;" data-i18n="emptyRateMsg">No products yet — connect this shop's Google Sheet below to load its catalog.</div>
     </div>
   </div>
