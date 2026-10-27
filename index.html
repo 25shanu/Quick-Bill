@@ -2485,7 +2485,22 @@ const DENOMINATIONS = [2000, 500, 200, 100, 50, 20, 10, 5, 2, 1];
 
 // discount given to the active customer: a rupee amount (never more than the bill total) or a percent of the total (never more than 100%)
 const trKey = k => { const d = TRANSLATIONS[appLanguage] || TRANSLATIONS.en; return d[k] !== undefined ? d[k] : (TRANSLATIONS.en[k] || k); };
-function discountIsPercent(){ const c = customers[activeCustomerIdx]; return !!(c && c.discountMode === 'percent'); }
+// the chosen symbol (₹ or %) is remembered on this phone for this shop: it stays as chosen for every customer and after the app is
+// refreshed or reopened, until the shopkeeper changes it
+const discountModeKey = () => 'qb-discount-mode:' + String(shopName || '').toLowerCase().trim();
+let discountModeCache = 'amount', discountModeCacheShop = null;
+function getDiscountMode(){
+  if(discountModeCacheShop !== shopName){
+    discountModeCacheShop = shopName;
+    try{ discountModeCache = localStorage.getItem(discountModeKey()) === 'percent' ? 'percent' : 'amount'; }catch(e){ discountModeCache = 'amount'; }
+  }
+  return discountModeCache;
+}
+function rememberDiscountMode(mode){
+  discountModeCache = mode; discountModeCacheShop = shopName;
+  try{ localStorage.setItem(discountModeKey(), mode); }catch(e){}
+}
+function discountIsPercent(){ return getDiscountMode() === 'percent'; }
 function activeDiscountFor(total){
   const c = customers[activeCustomerIdx];
   const d = Math.max(0, parseFloat(c && c.discount) || 0);
@@ -2550,7 +2565,7 @@ function syncDiscountMode(){
   a.setAttribute('aria-pressed', String(!pct)); p.setAttribute('aria-pressed', String(pct));
 }
 function setDiscountMode(mode){
-  customers[activeCustomerIdx].discountMode = mode;
+  rememberDiscountMode(mode);
   syncDiscountMode();
   updateChange();
 }
@@ -2558,8 +2573,8 @@ document.getElementById('discModeAmt').addEventListener('click', ()=> setDiscoun
 document.getElementById('discModePct').addEventListener('click', ()=> setDiscountMode('percent'));
 document.getElementById('discountAmt').addEventListener('input', (e)=>{
   const raw = e.target.value;
-  if(raw.indexOf('%') !== -1) customers[activeCustomerIdx].discountMode = 'percent';
-  else if(raw.indexOf('\u20B9') !== -1) customers[activeCustomerIdx].discountMode = 'amount';
+  if(raw.indexOf('%') !== -1) rememberDiscountMode('percent');
+  else if(raw.indexOf('\u20B9') !== -1) rememberDiscountMode('amount');
   let cleaned = raw.replace(/[^0-9.]/g, '');
   const firstDot = cleaned.indexOf('.');
   if(firstDot !== -1) cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
@@ -2859,7 +2874,6 @@ document.getElementById('clearBtn').addEventListener('click', ()=>{
   delete customers[activeCustomerIdx].saleId; delete customers[activeCustomerIdx].saleSig;   // the next customer is a new bill
   setActiveBill([]);
   customers[activeCustomerIdx].discount = 0;
-  customers[activeCustomerIdx].discountMode = 'amount';
   document.getElementById('discountAmt').value = '';
   document.getElementById('cashReceived').value = '';
   renderBill();
@@ -3100,38 +3114,62 @@ function fileToBase64(file){
   });
 }
 
-// Phone camera photos are often huge (4000px+, several MB) — shrinking to a
-// sensible max size before upload noticeably cuts both upload time and how
-// long the reading service takes to process it, without losing the detail
-// needed to read handwriting.
-function compressImage(file, maxDimension){
+// Phone camera photos are huge (4000px+, 5-12 MB). Opening one at full size needs a lot of memory (a 12 megapixel photo
+// is about 48 MB once opened, a 50 megapixel one about 200 MB), and a phone with little RAM can run out and fail.
+// So the photo is shrunk without ever opening it at full size:
+//   1. the browser is asked to decode it straight down to a small size (needs very little memory), or, if that is not
+//      available, 2. it is opened through a temporary link (not copied into a giant text string first) and shrunk.
+// What is sent is a small picture (about 150-300 KB) that is plenty to read handwriting.
+function blobToBase64(blob){
   return new Promise((resolve, reject)=>{
-    const img = new Image();
     const reader = new FileReader();
-    reader.onload = (e)=>{ img.src = e.target.result; };
+    reader.onload = ()=> resolve(String(reader.result).split(',')[1]);
     reader.onerror = ()=> reject(new Error('Could not read the image file.'));
-    img.onload = ()=>{
-      let { width, height } = img;
-      if(width > maxDimension || height > maxDimension){
-        if(width > height){
-          height = Math.round(height * (maxDimension / width));
-          width = maxDimension;
-        } else {
-          width = Math.round(width * (maxDimension / height));
-          height = maxDimension;
-        }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, width, height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-      resolve({ base64: dataUrl.split(',')[1], mediaType: 'image/jpeg' });
-    };
-    img.onerror = ()=> reject(new Error('Could not process the image.'));
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(blob);
   });
+}
+function canvasToJpegBlob(canvas, quality){
+  return new Promise((resolve, reject)=>{
+    canvas.toBlob(b => b ? resolve(b) : reject(new Error('NOMEM')), 'image/jpeg', quality);
+  });
+}
+async function compressImage(file, maxDimension){
+  let canvas = null;
+  try{
+    let drawable = null, width = 0, height = 0, bitmap = null, url = null;
+    if(window.createImageBitmap && file.size > 300 * 1024){
+      try{
+        bitmap = await createImageBitmap(file, { resizeWidth: maxDimension, resizeQuality: 'medium' });
+        drawable = bitmap; width = bitmap.width; height = bitmap.height;
+      }catch(e){ bitmap = null; }
+    }
+    if(!drawable){
+      url = URL.createObjectURL(file);
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      width = img.naturalWidth; height = img.naturalHeight;
+      if(width > maxDimension || height > maxDimension){
+        if(width > height){ height = Math.round(height * (maxDimension / width)); width = maxDimension; }
+        else { width = Math.round(width * (maxDimension / height)); height = maxDimension; }
+      }
+      drawable = img;
+    }
+    canvas = document.createElement('canvas');
+    canvas.width = width; canvas.height = height;
+    canvas.getContext('2d').drawImage(drawable, 0, 0, width, height);
+    if(bitmap && bitmap.close) bitmap.close();
+    if(url) URL.revokeObjectURL(url);
+    const blob = await canvasToJpegBlob(canvas, 0.8);
+    canvas.width = 0; canvas.height = 0;
+    return { base64: await blobToBase64(blob), mediaType: 'image/jpeg' };
+  }catch(err){
+    if(canvas){ canvas.width = 0; canvas.height = 0; }
+    if(err && (err.message === 'NOMEM' || err.name === 'EncodingError' || /memory/i.test(String(err.message)))){
+      throw new Error('This phone ran out of memory with that photo. Close other apps and try again, or pick a smaller photo from the gallery');
+    }
+    throw new Error('Could not open that photo. Try taking it again');
+  }
 }
 // Set this to your Cloudflare Worker's URL after you deploy it, e.g.
 // 'https://quick-bill-scanner.yourname.workers.dev'
@@ -3411,16 +3449,31 @@ async function readParchaImage(base64, mediaType){
   if(!SCAN_ENDPOINT || SCAN_ENDPOINT.startsWith('PASTE_')){
     throw new Error('Scanner isn\'t set up yet — add your Cloudflare Worker URL in the code (search for SCAN_ENDPOINT).');
   }
-  const response = await fetch(SCAN_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ base64, mediaType })
-  });
-  const data = await response.json();
-  if(!response.ok){
-    throw new Error(data.error || `Request failed (${response.status})`);
+  const body = JSON.stringify({ base64, mediaType });
+  let lastError = null;
+  for(let attempt = 0; attempt < 2; attempt++){                     // one automatic second try if the connection drops
+    const controller = new AbortController();
+    const timer = setTimeout(()=> controller.abort(), 55000);          // never wait forever
+    try{
+      const response = await fetch(SCAN_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: controller.signal });
+      clearTimeout(timer);
+      let data = null;
+      try{ data = await response.json(); }catch(e){}
+      if(!response.ok){
+        // a busy or failing reading service (not the phone): try once more, otherwise say so plainly
+        if(attempt === 0 && response.status >= 500) { lastError = new Error('The reading service is busy'); continue; }
+        throw new Error((data && data.error) || (response.status >= 500 ? 'The reading service is busy, please try again in a minute' : 'Request failed (' + response.status + ')'));
+      }
+      if(!data || !Array.isArray(data.items)) throw new Error('The reading service sent an unexpected answer');
+      return data.items;
+    }catch(err){
+      clearTimeout(timer);
+      if(err && err.name === 'AbortError') lastError = new Error('The reading took too long');
+      else if(err instanceof TypeError) lastError = new Error(navigator.onLine === false ? 'No internet connection' : 'Could not reach the reading service');
+      else throw err;
+    }
   }
-  return data.items;
+  throw lastError || new Error('Could not reach the reading service');
 }
 async function handleScanFile(file){
   const statusEl = document.getElementById('scanStatus');
@@ -3428,8 +3481,11 @@ async function handleScanFile(file){
   statusEl.className = 'scan-status loading';
   statusEl.textContent = 'Reading the parcha…';
   try{
-    const { base64, mediaType } = await compressImage(file, 1200);
-    const parsedItems = await readParchaImage(base64, mediaType);
+    const { base64, mediaType } = await compressImage(file, 1280);
+    statusEl.textContent = 'Reading the parcha…';
+    const stillTimer = setTimeout(()=>{ statusEl.textContent = 'Still reading, please wait a little…'; }, 10000);
+    let parsedItems;
+    try{ parsedItems = await readParchaImage(base64, mediaType); } finally { clearTimeout(stillTimer); }
     const added = [];
     const missed = [];
     parsedItems.forEach(entry=>{
@@ -3461,7 +3517,7 @@ async function handleScanFile(file){
   } catch(err){
     clearTimeout(mergeNoteTimer);
     statusEl.className = 'scan-status';
-    statusEl.innerHTML = `<span class="scan-close" id="scanCloseBtn">close</span>Couldn't read that photo (${err.message}). Try again with better lighting, or add items by hand.`;
+    statusEl.innerHTML = `<span class="scan-close" id="scanCloseBtn">close</span>Couldn't read that photo (${err.message}). Try again, or add items by hand.`;
     const closeBtn = document.getElementById('scanCloseBtn');
     if(closeBtn) closeBtn.addEventListener('click', ()=>{ statusEl.style.display = 'none'; });
   }
