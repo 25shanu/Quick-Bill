@@ -666,7 +666,7 @@
   <div class="login-card">
     <h1 data-i18n="nameTitle">Enter your name</h1>
     <p data-i18n="nameIntro">This name is shown to your service provider so they can recognise this device.</p>
-    <input type="text" id="deviceNameInput" maxlength="30" placeholder="e.g. Ramesh" data-i18n-placeholder="namePlaceholder" autocomplete="off">
+    <input type="text" id="deviceNameInput" maxlength="30" placeholder="e.g. Virat Kohli" data-i18n-placeholder="namePlaceholder" autocomplete="off">
     <div class="login-note" id="nameNote" style="margin:8px 0 14px;"></div>
     <button id="saveNameBtn" data-i18n="saveName">Continue</button>
   </div>
@@ -1132,7 +1132,7 @@ const TRANSLATIONS = {
     chooseConnectedShop: 'Choose a connected shop',
     nameTitle: 'Enter your name',
     nameIntro: 'This name is shown to your service provider so they can recognise this device.',
-    namePlaceholder: 'e.g. Ramesh',
+    namePlaceholder: 'e.g. Virat Kohli',
     saveName: 'Continue',
     nameNeeded: 'Please enter your name.',
     shopNamePlaceholder: 'e.g. Sharma Kirana Store',
@@ -1226,7 +1226,7 @@ const TRANSLATIONS = {
     chooseConnectedShop: 'जुड़ी हुई दुकान चुनें',
     nameTitle: 'अपना नाम लिखें',
     nameIntro: 'यह नाम आपके सर्विस प्रोवाइडर को दिखेगा ताकि वे इस डिवाइस को पहचान सकें।',
-    namePlaceholder: 'जैसे रमेश',
+    namePlaceholder: 'जैसे विराट कोहली',
     saveName: 'आगे बढ़ें',
     nameNeeded: 'कृपया अपना नाम लिखें।',
     shopNamePlaceholder: 'जैसे Sharma Kirana Store',
@@ -1847,9 +1847,11 @@ function updateSheetUiState(){
   }
 }
 
+let pullSeqCounter = 0, pullSeqApplied = 0;
 async function pullFromSheet(showStatus, retry){
   if(!sheetUrl) return;
   const epochAtStart = stockEpoch;
+  const mySeq = ++pullSeqCounter;
   if(showStatus) setSheetStatus('Pulling latest from your sheet…');
   try{
     const response = await fetch(sheetUrl);
@@ -1899,6 +1901,8 @@ async function pullFromSheet(showStatus, retry){
     // which is the vast majority of the time — is what makes the app feel
     // slow, not the network request itself. This check makes a no-change
     // poll effectively free.
+    if(mySeq < pullSeqApplied) return;          // a newer answer from the sheet was already used; this older one must not put old numbers back
+    pullSeqApplied = mySeq;
     sheetBarcodeSupport = (data.barcodeSupport === true);
     sheetStockSync = (data.stockSync === true);
     sheetSalesSupport = (data.salesSupport === true);
@@ -1911,6 +1915,7 @@ async function pullFromSheet(showStatus, retry){
       ensurePendingLoaded();
       const localByName = {}; items.forEach(it => { localByName[it.name] = it; });
       const stale = (stockEpoch !== epochAtStart);
+      if(stale) scheduleStockPull();            // the sheet's answer was out of date by the time it arrived: ask again right away so this phone catches up
       freshItems.forEach(it => {
         const local = localByName[it.name];
         it.stock = (stale && local) ? local.stock : Math.max(0, round4(it.stock + stockFor(it.name)));
@@ -2181,49 +2186,115 @@ function renderFavStrip(){
 
 let sortMode = 'alpha';
 
-function renderRates(){
-  const tbody = document.getElementById('rateTable');
-  tbody.innerHTML = '';
-  document.getElementById('rateEmptyMsg').style.display = items.length ? 'none' : 'block';
-
-  let sorted = items.map((it, idx)=>({it, idx}));
+// ---- the rates table ----
+// Drawing a thousand rows one by one, with a listener on every button, on almost every tap made the app slow on cheap phones.
+// Now: (1) the rows are built as one block and put in place once, (2) one click listener serves every row, and
+// (3) when only numbers changed (stock after a sale, a new rate, a star) just the rows that changed are updated.
+const escRates = v => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const rateCollator = new Intl.Collator();
+let rateRowEls = [];          // the table row of each product, by product number
+let rateShape = null;         // what the table was built from: the names, types and sort order
+let rateValues = [];          // the numbers each row shows now
+function rateRowInner(it, idx){
+  const perLabel = it.type === 'packet' ? 'per pc' : `per ${unitLabel(it.type)}`;
+  const stockDisplay = it.stock <= 0 ? 'Stock Empty' : Math.round(it.stock * 1000) / 1000;
+  return `<td><button class="star-btn ${it.favorite ? 'on' : ''}" data-idx="${idx}">${it.favorite ? '\u2605' : '\u2606'}</button></td>`
+    + `<td><div class="name">${escRates(itemDisplayName(it))}</div><div class="unit">${perLabel} \u00B7 ${capitalize(it.type)}</div></td>`
+    + `<td class="num"><span class="rate-locked">\u20B9${it.rate}</span></td>`
+    + `<td class="num"><span class="rate-locked ${isLow(it) ? 'low' : ''}">${stockDisplay}</span></td>`
+    + `<td><button class="ghost quickAddBtn" data-idx="${idx}" title="Add to current bill" ${it.stock <= 0 ? 'disabled' : ''}>+</button></td>`;
+}
+const rateRowClass = it => 'rate-row' + (it.stock <= 0 ? ' out-of-stock' : '');
+const rateValueKey = it => it.stock + '|' + it.rate + '|' + (it.favorite ? 1 : 0);
+// Only the first screens of rows are drawn; more rows are added as the list is scrolled. The browser has to lay out every row
+// it is given, so drawing thousands at once made every change slow on cheap phones, however small the change was.
+const RATE_CHUNK = 80;
+let rateOrder = [];           // product numbers in the order they are listed
+let rateShown = 0;            // how many rows of rateOrder are drawn now
+function rateOrderFor(){
+  const order = items.map((it, idx) => idx);
   if(sortMode === 'alpha'){
-    sorted.sort((a,b)=> a.it.name.localeCompare(b.it.name));
+    order.sort((a, b) => rateCollator.compare(items[a].name, items[b].name));
   } else if(sortMode === 'newest'){
-    sorted.reverse(); // items are appended in the order they arrived from the sheet/admin, so reversing shows newest first
+    order.reverse(); // items are appended in the order they arrived from the sheet/admin, so reversing shows newest first
   }
   // 'oldest' needs no reordering — natural array order is already oldest-first
-
-  sorted.forEach(({it, idx})=>{
-    const perLabel = it.type === 'packet' ? 'per pc' : `per ${unitLabel(it.type)}`;
-    const stockDisplay = it.stock <= 0 ? 'Stock Empty' : Math.round(it.stock * 1000) / 1000;
-    const tr = document.createElement('tr');
-    tr.className = 'rate-row' + (it.stock <= 0 ? ' out-of-stock' : '');
-    tr.innerHTML = `
-      <td><button class="star-btn ${it.favorite ? 'on' : ''}" data-idx="${idx}">${it.favorite ? '★' : '☆'}</button></td>
-      <td><div class="name">${itemDisplayName(it)}</div><div class="unit">${perLabel} · ${capitalize(it.type)}</div></td>
-      <td class="num"><span class="rate-locked">₹${it.rate}</span></td>
-      <td class="num"><span class="rate-locked ${isLow(it) ? 'low' : ''}">${stockDisplay}</span></td>
-      <td><button class="ghost quickAddBtn" data-idx="${idx}" title="Add to current bill" ${it.stock <= 0 ? 'disabled' : ''}>+</button></td>
-    `;
-    tbody.appendChild(tr);
-  });
-  tbody.querySelectorAll('.star-btn').forEach(btn=>{
-    btn.addEventListener('click', e=>{
-      const i = parseInt(e.target.dataset.idx);
-      items[i].favorite = !items[i].favorite;
-      renderRates();
-      renderFavStrip();
-      scheduleSave();
-    });
-  });
-  tbody.querySelectorAll('.quickAddBtn').forEach(btn=>{
-    btn.addEventListener('click', e=>{
-      const i = parseInt(e.currentTarget.dataset.idx);
-      addToBill(i);
-    });
-  });
+  return order;
 }
+function drawRateRows(count){
+  const tbody = document.getElementById('rateTable');
+  const end = Math.min(rateOrder.length, count);
+  if(end <= rateShown) return;
+  let html = '';
+  for(let k = rateShown; k < end; k++){
+    const idx = rateOrder[k], it = items[idx];
+    html += `<tr class="${rateRowClass(it)}" data-idx="${idx}">${rateRowInner(it, idx)}</tr>`;
+  }
+  const first = tbody.children.length;
+  tbody.insertAdjacentHTML('beforeend', html);
+  const rows = tbody.children;
+  for(let k = first; k < rows.length; k++){ rateRowEls[parseInt(rows[k].dataset.idx)] = rows[k]; }
+  for(let k = rateShown; k < end; k++){ rateValues[rateOrder[k]] = rateValueKey(items[rateOrder[k]]); }
+  rateShown = end;
+}
+function rebuildRateRows(keepCount){
+  const tbody = document.getElementById('rateTable');
+  tbody.innerHTML = '';
+  rateRowEls = new Array(items.length);
+  rateValues = items.map(rateValueKey);
+  rateOrder = rateOrderFor();
+  rateShown = 0;
+  drawRateRows(Math.max(RATE_CHUNK, keepCount || 0));
+  rateShape = { sortMode, display: items.map(itemDisplayName), types: items.map(it => it.type) };
+}
+function renderRates(){
+  document.getElementById('rateEmptyMsg').style.display = items.length ? 'none' : 'block';
+  const n = items.length;
+
+  // same products as the last time? then only refresh the drawn rows whose numbers changed
+  let same = !!rateShape && rateShape.display.length === n && rateRowEls.length === n;
+  if(same){
+    for(let i = 0; i < n; i++){
+      if(rateShape.display[i] !== itemDisplayName(items[i]) || rateShape.types[i] !== items[i].type){ same = false; break; }
+    }
+  }
+  if(same){
+    for(let i = 0; i < n; i++){
+      const it = items[i], key = rateValueKey(it);
+      if(key !== rateValues[i]){
+        rateValues[i] = key;
+        const tr = rateRowEls[i];
+        if(tr){ tr.className = rateRowClass(it); tr.innerHTML = rateRowInner(it, i); }   // rows not drawn yet pick up the new numbers when they are
+      }
+    }
+    if(rateShape.sortMode !== sortMode){          // only the sort order changed: list again from the top in the new order
+      rebuildRateRows(0);
+      document.querySelectorAll('.rate-panel-scroll, .rate-panel-inner').forEach(el => { el.scrollTop = 0; });
+    }
+    return;
+  }
+  rebuildRateRows(rateShown);                      // different products: draw again (as many rows as were showing)
+}
+// add the next rows when the shopkeeper scrolls near the end of the list
+function rateMoreOnScroll(e){
+  const el = e.currentTarget;
+  if(rateShown < rateOrder.length && el.scrollTop + el.clientHeight > el.scrollHeight - 400) drawRateRows(rateShown + RATE_CHUNK);
+}
+document.querySelectorAll('.rate-panel-scroll, .rate-panel-inner').forEach(el => el.addEventListener('scroll', rateMoreOnScroll, { passive: true }));
+
+document.getElementById('rateTable').addEventListener('click', e=>{
+  const star = e.target.closest('.star-btn');
+  if(star){
+    const i = parseInt(star.dataset.idx);
+    items[i].favorite = !items[i].favorite;
+    renderRates();
+    renderFavStrip();
+    scheduleSave();
+    return;
+  }
+  const add = e.target.closest('.quickAddBtn');
+  if(add && !add.disabled) addToBill(parseInt(add.dataset.idx));
+});
 
 // the amount of one bill line: normally quantity x rate, but when the shopkeeper typed the rupees
 // (for loose items, "10 rs ka soda") that exact amount is kept, so rounding never changes it
@@ -2381,9 +2452,18 @@ function pingStockChange(){
     firebase.database().ref('shops/' + fbShopKey(shopCode) + '/stockPing').set({ by: getOrCreateDeviceId(), t: firebase.database.ServerValue.TIMESTAMP }).catch(()=>{});
   }catch(err){}
 }
+let stockPulling = false, stockPullAgain = false;
 function scheduleStockPull(){
   clearTimeout(stockPullTimer);
-  stockPullTimer = setTimeout(()=>{ if(shopName && sheetUrl) pullFromSheet(false); }, 250);
+  stockPullTimer = setTimeout(runStockPull, 250);
+}
+async function runStockPull(){
+  if(!(shopName && sheetUrl)) return;
+  if(stockPulling){ stockPullAgain = true; return; }   // a refresh is already on its way: do one more straight after it
+  stockPulling = true;
+  try{ await pullFromSheet(false); }catch(e){}
+  stockPulling = false;
+  if(stockPullAgain){ stockPullAgain = false; scheduleStockPull(); }
 }
 window.addEventListener('online', ()=> scheduleStockFlush(500));
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') scheduleStockFlush(500); });
