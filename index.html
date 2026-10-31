@@ -1103,12 +1103,13 @@ const TRANSLATIONS = {
     qrEmpty: 'Add items to the bill first.',
     waNumber: 'Customer mobile number (optional)',
     waNumberPh: '10-digit number',
-    waText: 'Send as text message',
+    waText: 'Open chat and send bill',
+    waSms: 'Not on WhatsApp? Send as SMS',
     waPicNoQr: 'Send bill as picture',
-    waPic: 'Send bill with QR (picture)',
+    waPic: 'Send picture with QR',
     waBadNumber: 'Enter a 10-digit mobile number, or leave it empty and pick the contact in WhatsApp.',
     waNoShare: 'This phone cannot share a picture from here. Use Save As JPEG, or send as message.',
-    waHint: 'Picture: choose WhatsApp and the customer in the list that opens. The bill and the QR with the exact amount are on the picture. Text: opens the chat with the number typed above, with the bill and your UPI ID.',
+    waHint: 'Open chat: opens this number\'s WhatsApp chat straight away with the bill written in it. Picture: WhatsApp does not let an app pick the chat for a picture, so you choose the customer in the list that opens; the picture has the QR with the exact amount. SMS: sends plain text only, without the QR.',
     discountTooBig: 'Discount cannot be more than the total.',
     amtHint: 'For loose items, type the rupees in the Amount box and the weight or litres fill in automatically.',
     changeToReturn: 'Change To Return',
@@ -1197,12 +1198,13 @@ const TRANSLATIONS = {
     qrEmpty: 'पहले बिल में सामान जोड़ें।',
     waNumber: 'ग्राहक का मोबाइल नंबर (ज़रूरी नहीं)',
     waNumberPh: '10 अंकों का नंबर',
-    waText: 'टेक्स्ट मैसेज में भेजें',
+    waText: 'चैट खोलें और बिल भेजें',
+    waSms: 'WhatsApp पर नहीं हैं? SMS भेजें',
     waPicNoQr: 'बिल फोटो में भेजें',
-    waPic: 'QR के साथ बिल भेजें (फोटो)',
+    waPic: 'QR के साथ फोटो भेजें',
     waBadNumber: '10 अंकों का मोबाइल नंबर लिखें, या खाली छोड़कर WhatsApp में संपर्क चुनें।',
     waNoShare: 'इस फ़ोन से यहाँ से फोटो शेयर नहीं हो सकती। Save As JPEG इस्तेमाल करें, या मैसेज में भेजें।',
-    waHint: 'फोटो: खुलने वाली सूची में WhatsApp और ग्राहक चुनें। फोटो पर बिल और सही राशि वाला QR होता है। टेक्स्ट: ऊपर लिखे नंबर की चैट खुलेगी, मैसेज में बिल और आपकी UPI ID होगी।',
+    waHint: 'चैट खोलें: इस नंबर की WhatsApp चैट सीधे बिल के साथ खुलती है। फोटो: WhatsApp फोटो के लिए ऐप को चैट चुनने नहीं देता, इसलिए खुलने वाली सूची में ग्राहक आप चुनें; फोटो पर सही राशि वाला QR होता है। SMS: सिर्फ़ सादा टेक्स्ट जाता है, QR के बिना।',
     discountTooBig: 'छूट कुल राशि से ज़्यादा नहीं हो सकती।',
     amtHint: 'खुले सामान के लिए Amount में रुपये लिखें, वज़न या लीटर अपने आप भर जाएगा।',
     changeToReturn: 'वापस देने की राशि',
@@ -3961,6 +3963,18 @@ function waMessage(data, cfg){
   return t;
 }
 
+// the same bill as plain text for an SMS: no bold marks, English only (Hindi letters shrink every SMS part and cost more parts)
+function smsMessage(data, cfg){
+  const rs = v => 'Rs ' + v.toFixed(2);
+  let t = (data.shopLine || 'Bill') + '\n' + data.dateStr + '\n';
+  data.lines.forEach(l => { t += l.text.replace(/\u2014/g, '-') + ' ' + rs(l.amount) + '\n'; });   // a plain dash keeps the SMS in the cheaper character set
+  if(data.discount > 0){ t += 'Total ' + rs(data.total) + '\n' + data.discountLabel + ' -' + rs(data.discount) + '\nTo Pay ' + rs(data.payable) + '\n'; }
+  else t += 'Total ' + rs(data.total) + '\n';
+  if(cfg.id && data.payable > 0) t += 'Pay by UPI: ' + cfg.id + '\n';
+  t += 'Thank you! Visit again.';
+  return t;
+}
+
 (function(){
   const $ = id => document.getElementById(id);
   const ov = $('shOverlay'), body = $('shBody'), title = $('shTitle');
@@ -4035,7 +4049,15 @@ function waMessage(data, cfg){
     body.appendChild(el('p', 'sh-note', T('waHint')));
     const row = el('div', 'sh-btns');
     const haveUpi = !!loadUpi().id;
-    row.appendChild(btn(T(haveUpi ? 'waPic' : 'waPicNoQr'), false, async () => {
+    // 1. opens this number's WhatsApp chat straight away, with the bill written in it (no searching for the customer)
+    row.appendChild(btn(T('waText'), false, () => {
+      const n = waNumber(inp.value);
+      if(n === null){ err.textContent = T('waBadNumber'); return; }
+      finalizeSale();
+      openExternal('https://wa.me/' + n + '?text=' + encodeURIComponent(waMessage(buildBillData(), loadUpi())));
+    }));
+    // 2. the bill as a picture with the QR. WhatsApp does not let an app choose the chat for a picture, so the customer is picked from the list that opens
+    row.appendChild(btn(T(haveUpi ? 'waPic' : 'waPicNoQr'), true, async () => {
       err.textContent = '';
       finalizeSale();
       try{
@@ -4048,11 +4070,12 @@ function waMessage(data, cfg){
         else err.textContent = T('waNoShare');
       }catch(e){ if(e && e.name !== 'AbortError') err.textContent = T('waNoShare'); }
     }));
-    row.appendChild(btn(T('waText'), true, () => {
+    // 3. the customer is not on WhatsApp: the same bill as a plain text message (SMS), without the QR
+    row.appendChild(btn(T('waSms'), true, () => {
       const n = waNumber(inp.value);
       if(n === null){ err.textContent = T('waBadNumber'); return; }
       finalizeSale();
-      openExternal('https://wa.me/' + n + '?text=' + encodeURIComponent(waMessage(buildBillData(), loadUpi())));
+      openExternal('sms:' + (n ? '+' + n : '') + '?body=' + encodeURIComponent(smsMessage(buildBillData(), loadUpi())));
     }));
     body.appendChild(row);
     setTimeout(() => { try{ inp.focus(); }catch(e){} }, 60);
