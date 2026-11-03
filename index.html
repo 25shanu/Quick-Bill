@@ -301,6 +301,17 @@
   .off-text{font-size:15.5px; line-height:1.65; color:#4a5a54; margin-bottom:20px;}
   #offRetry{font-family:inherit; font-size:16px; font-weight:700; height:50px; min-width:180px; padding:0 22px; border-radius:12px; border:1.5px solid #1f6f5c; background:#1f6f5c; color:#fff; cursor:pointer;}
   .off-status{margin-top:12px; min-height:20px; font-size:14px; color:#6b7a74;}
+  .stock-cell{display:flex; align-items:center; justify-content:flex-end; gap:8px;}
+  .lock-icon{flex:0 0 auto; width:32px; height:32px; padding:0; display:inline-flex; align-items:center; justify-content:center; border:1.5px solid var(--line); border-radius:8px; background:#fff; color:var(--accent-dark); cursor:pointer; box-shadow:none; min-height:0;}
+  .lock-icon svg{width:17px; height:17px; display:block;}
+  .lock-icon.open{background:var(--accent); border-color:var(--accent); color:#fff;}
+  .lock-icon:disabled{opacity:.5; cursor:wait;}
+  .rate-edit, .stock-edit{width:74px; font-family:'Courier New', monospace; font-size:15px; font-weight:700; padding:6px 6px; border:1.5px solid var(--accent); border-radius:8px; text-align:right; background:#fff; color:var(--ink);}
+  .rate-edit:focus, .stock-edit:focus{outline:2px solid var(--accent); outline-offset:1px;}
+  .rate-edit.bad, .stock-edit.bad{border-color:var(--low); background:#fff3f1;}
+  #qbToast{position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom, 0px) + 28px); transform:translateX(-50%); z-index:6000; max-width:88vw; padding:11px 18px; border-radius:12px; background:#1f2a26; color:#fff; font-size:14.5px; font-weight:600; opacity:0; pointer-events:none; transition:opacity .2s;}
+  #qbToast.show{opacity:1;}
+  @media (max-width:760px){ .rate-edit, .stock-edit{width:62px; padding:6px 4px;} .stock-cell{gap:5px;} }
   #printArea .pqr{text-align:center; margin-top:2mm;}
   #printArea .pqr svg{display:block; margin:0 auto 1.5mm; width:62%; max-width:46mm; height:auto;}
   .change-block .change-row{margin-bottom:12px;}
@@ -1105,6 +1116,11 @@ const TRANSLATIONS = {
     discountLabel: 'Discount',
     discountTooBigPct: 'Discount cannot be more than 100%.',
     toPay: 'To Pay',
+    rateUnlockTip: 'Tap to unlock and change the price or stock',
+    rateLockTip: 'Tap to save and lock',
+    rateSaved: 'Saved',
+    rateSaveFail: 'Could not save. Please try again.',
+    rateBadNumber: 'Please type numbers only.',
     offTitle: 'You\'re offline',
     offText: 'Quick Bill works only when the internet is on. Please switch on Wi-Fi or mobile data. Your bill stays here and continues as soon as you are back online.',
     offRetry: 'Try again',
@@ -1205,6 +1221,11 @@ const TRANSLATIONS = {
     discountLabel: 'छूट',
     discountTooBigPct: 'छूट 100% से ज़्यादा नहीं हो सकती।',
     toPay: 'देय राशि',
+    rateUnlockTip: 'भाव या स्टॉक बदलने के लिए खोलें',
+    rateLockTip: 'सेव करके लॉक करें',
+    rateSaved: 'सेव हो गया',
+    rateSaveFail: 'सेव नहीं हो सका। फिर कोशिश करें।',
+    rateBadNumber: 'सिर्फ़ संख्या लिखें।',
     offTitle: 'आप ऑफ़लाइन हैं',
     offText: 'Quick Bill सिर्फ़ इंटरनेट चालू होने पर चलता है। कृपया Wi-Fi या मोबाइल डेटा चालू करें। आपका बिल यहीं रहेगा और इंटरनेट आते ही आगे चलेगा।',
     offRetry: 'फिर कोशिश करें',
@@ -1322,6 +1343,7 @@ function shopKey(name){ return 'shop:' + name.toLowerCase().trim(); }
 let sheetUrl = ''; // this shop's connected Google Sheet web app URL, if any
 var sheetBarcodeSupport = false; // true once the sheet's script says it understands barcodes
 var sheetStockSync = false;      // true once the sheet's script can record stock changes
+var sheetEditSupport = false;    // true once the sheet's script can change one product's price or stock
 var sheetSalesSupport = false;   // true once the sheet's script can save finished bills
 var salesRecordOn = false;       // the admin switched "save sales record" on for this shop
 var salesFlagKnown = false;      // true once the sheet has told us (until then the last known answer is used)
@@ -1543,6 +1565,7 @@ async function deviceCheckin(){
 // it, based on the current value of `locked` — called after every pull/connect
 // and right on login, using whatever lock status was last saved
 function applyLockState(){
+  if(locked && typeof cancelRateEdit === 'function') cancelRateEdit();
   if(locked && typeof window.closeBarcodeScanner === 'function') window.closeBarcodeScanner();
   if(locked && typeof window.closeShareModal === 'function') window.closeShareModal();
   const overlay = document.getElementById('lockedOverlay');
@@ -1935,6 +1958,7 @@ async function pullFromSheet(showStatus, retry){
     sheetBarcodeSupport = (data.barcodeSupport === true);
     sheetStockSync = (data.stockSync === true);
     sheetSalesSupport = (data.salesSupport === true);
+    sheetEditSupport = (data.editSupport === true);
     salesRecordOn = sheetSalesSupport && data.salesRecord === true;
     salesFlagKnown = true;
     try{ if(salesRecordOn) localStorage.setItem(salesOnKey(), '1'); else localStorage.removeItem(salesOnKey()); }catch(e){}
@@ -2023,6 +2047,7 @@ document.getElementById('connectSheetBtn').addEventListener('click', async ()=>{
     sheetBarcodeSupport = (data.barcodeSupport === true);
     sheetStockSync = (data.stockSync === true);
     sheetSalesSupport = (data.salesSupport === true);
+    sheetEditSupport = (data.editSupport === true);
     salesRecordOn = sheetSalesSupport && data.salesRecord === true;
     salesFlagKnown = true;
     try{ if(salesRecordOn) localStorage.setItem(salesOnKey(), '1'); else localStorage.removeItem(salesOnKey()); }catch(e){}
@@ -2224,17 +2249,32 @@ const rateCollator = new Intl.Collator();
 let rateRowEls = [];          // the table row of each product, by product number
 let rateShape = null;         // what the table was built from: the names, types and sort order
 let rateValues = [];          // the numbers each row shows now
+let rateEditIdx = -1, rateEditTimer = null;      // the one row that is unlocked right now (-1 = none)
+const rateSaving = new Set();                    // rows whose change is being saved
+const LOCK_CLOSED = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+const LOCK_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.7"/></svg>';
 function rateRowInner(it, idx){
   const perLabel = it.type === 'packet' ? 'per pc' : `per ${unitLabel(it.type)}`;
-  const stockDisplay = it.stock <= 0 ? 'Stock Empty' : Math.round(it.stock * 1000) / 1000;
+  const stockRounded = Math.round(it.stock * 1000) / 1000;
+  const stockDisplay = it.stock <= 0 ? 'Stock Empty' : stockRounded;
+  const editing = idx === rateEditIdx, saving = rateSaving.has(idx);
+  const rateCell = editing
+    ? `<input class="rate-edit" type="text" inputmode="decimal" data-idx="${idx}" value="${it.rate}" aria-label="Price" autocomplete="off">`
+    : `<span class="rate-locked">\u20B9${it.rate}</span>`;
+  const stockCell = editing
+    ? `<input class="stock-edit" type="text" inputmode="decimal" data-idx="${idx}" value="${stockRounded}" aria-label="Stock" autocomplete="off">`
+    : `<span class="rate-locked ${isLow(it) ? 'low' : ''}">${stockDisplay}</span>`;
+  const lockBtn = sheetEditSupport
+    ? `<button type="button" class="lock-icon${editing ? ' open' : ''}" data-idx="${idx}" ${saving ? 'disabled' : ''} title="${escRates(trKey(editing ? 'rateLockTip' : 'rateUnlockTip'))}" aria-label="${escRates(trKey(editing ? 'rateLockTip' : 'rateUnlockTip'))}">${editing ? LOCK_OPEN : LOCK_CLOSED}</button>`
+    : '';
   return `<td><button class="star-btn ${it.favorite ? 'on' : ''}" data-idx="${idx}">${it.favorite ? '\u2605' : '\u2606'}</button></td>`
     + `<td><div class="name">${escRates(itemDisplayName(it))}</div><div class="unit">${perLabel} \u00B7 ${capitalize(it.type)}</div></td>`
-    + `<td class="num"><span class="rate-locked">\u20B9${it.rate}</span></td>`
-    + `<td class="num"><span class="rate-locked ${isLow(it) ? 'low' : ''}">${stockDisplay}</span></td>`
+    + `<td class="num">${rateCell}</td>`
+    + `<td class="num"><div class="stock-cell">${stockCell}${lockBtn}</div></td>`
     + `<td><button class="ghost quickAddBtn" data-idx="${idx}" title="Add to current bill" ${it.stock <= 0 ? 'disabled' : ''}>+</button></td>`;
 }
 const rateRowClass = it => 'rate-row' + (it.stock <= 0 ? ' out-of-stock' : '');
-const rateValueKey = it => it.stock + '|' + it.rate + '|' + (it.favorite ? 1 : 0);
+const rateValueKey = (it, i) => it.stock + '|' + it.rate + '|' + (it.favorite ? 1 : 0) + '|' + (i === rateEditIdx ? 1 : 0) + (rateSaving.has(i) ? 1 : 0) + (sheetEditSupport ? 1 : 0);
 // Only the first screens of rows are drawn; more rows are added as the list is scrolled. The browser has to lay out every row
 // it is given, so drawing thousands at once made every change slow on cheap phones, however small the change was.
 const RATE_CHUNK = 80;
@@ -2263,7 +2303,7 @@ function drawRateRows(count){
   tbody.insertAdjacentHTML('beforeend', html);
   const rows = tbody.children;
   for(let k = first; k < rows.length; k++){ rateRowEls[parseInt(rows[k].dataset.idx)] = rows[k]; }
-  for(let k = rateShown; k < end; k++){ rateValues[rateOrder[k]] = rateValueKey(items[rateOrder[k]]); }
+  for(let k = rateShown; k < end; k++){ rateValues[rateOrder[k]] = rateValueKey(items[rateOrder[k]], rateOrder[k]); }
   rateShown = end;
 }
 function rebuildRateRows(keepCount){
@@ -2289,7 +2329,8 @@ function renderRates(){
   }
   if(same){
     for(let i = 0; i < n; i++){
-      const it = items[i], key = rateValueKey(it);
+      if(i === rateEditIdx) continue;                 // the row being typed in is left alone, so a refresh never wipes what the shopkeeper is typing
+      const it = items[i], key = rateValueKey(it, i);
       if(key !== rateValues[i]){
         rateValues[i] = key;
         const tr = rateRowEls[i];
@@ -2311,19 +2352,117 @@ function rateMoreOnScroll(e){
 }
 document.querySelectorAll('.rate-panel-scroll, .rate-panel-inner').forEach(el => el.addEventListener('scroll', rateMoreOnScroll, { passive: true }));
 
-document.getElementById('rateTable').addEventListener('click', e=>{
-  const star = e.target.closest('.star-btn');
-  if(star){
-    const i = parseInt(star.dataset.idx);
-    items[i].favorite = !items[i].favorite;
-    renderRates();
-    renderFavStrip();
-    scheduleSave();
-    return;
+function refreshRateRow(idx){
+  const tr = rateRowEls[idx], it = items[idx];
+  if(!tr || !it) return;
+  tr.className = rateRowClass(it);
+  tr.innerHTML = rateRowInner(it, idx);
+  rateValues[idx] = rateValueKey(it, idx);
+}
+let toastTimer = null;
+function qbToast(message){
+  let el = document.getElementById('qbToast');
+  if(!el){ el = document.createElement('div'); el.id = 'qbToast'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
+  el.textContent = message; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+const parseRateNumber = v => { const t = String(v).trim().replace(/,/g, ''); return /^(\d+(\.\d+)?|\.\d+)$/.test(t) ? parseFloat(t) : NaN; };
+function startRateEdit(idx){
+  if(!sheetEditSupport || !items[idx]) return;
+  if(rateEditIdx !== -1 && rateEditIdx !== idx) commitRateEdit();     // the row that was open is saved and locked first
+  rateEditIdx = idx;
+  refreshRateRow(idx);
+  const tr = rateRowEls[idx], first = tr && tr.querySelector('.rate-edit');
+  if(first){ first.focus(); first.select(); }
+  restartRateEditTimer();
+}
+function restartRateEditTimer(){ clearTimeout(rateEditTimer); rateEditTimer = setTimeout(cancelRateEdit, 60000); }   // locks itself again after a minute of doing nothing
+function cancelRateEdit(){
+  if(rateEditIdx === -1) return;
+  const idx = rateEditIdx; rateEditIdx = -1; clearTimeout(rateEditTimer);
+  refreshRateRow(idx);
+}
+// saves what was typed in the open row and locks it again
+async function commitRateEdit(){
+  const idx = rateEditIdx;
+  if(idx === -1) return true;
+  const it = items[idx], tr = rateRowEls[idx];
+  const rIn = tr && tr.querySelector('.rate-edit'), sIn = tr && tr.querySelector('.stock-edit');
+  const newRate = rIn ? parseRateNumber(rIn.value) : it.rate;
+  const newStock = sIn ? parseRateNumber(sIn.value) : it.stock;
+  if(!(newRate >= 0) || !(newStock >= 0)){
+    if(rIn) rIn.classList.toggle('bad', !(newRate >= 0));
+    if(sIn) sIn.classList.toggle('bad', !(newStock >= 0));
+    qbToast(trKey('rateBadNumber'));
+    return false;                                        // stays unlocked so it can be corrected
   }
-  const add = e.target.closest('.quickAddBtn');
-  if(add && !add.disabled) addToBill(parseInt(add.dataset.idx));
-});
+  clearTimeout(rateEditTimer); rateEditIdx = -1;
+  const roundedRate = Math.round(newRate * 100) / 100;
+  const rateChanged = Math.abs(roundedRate - it.rate) > 1e-9, stockChanged = Math.abs(newStock - it.stock) > 1e-9;
+  if(!rateChanged && !stockChanged){ refreshRateRow(idx); return true; }
+  const before = { rate: it.rate, stock: it.stock };
+  if(rateChanged) it.rate = roundedRate;
+  if(stockChanged) it.stock = newStock;
+  rateSaving.add(idx); refreshRateRow(idx); renderBill(); renderFavStrip();
+  const body = { action: 'setItem', name: it.name };
+  if(rateChanged) body.rate = roundedRate;
+  if(stockChanged){ ensurePendingLoaded(); body.stock = Math.max(0, round4(newStock - stockFor(it.name))); }   // sales this phone has not sent yet still count
+  try{
+    const response = await fetch(sheetUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
+    const text = await response.text();
+    let j = null; try{ j = JSON.parse(text); }catch(e){}
+    if(!(j && j.ok)) throw new Error((j && j.error) || 'not confirmed');
+    if(j.rate !== undefined) it.rate = j.rate;
+    if(j.stock !== undefined) it.stock = Math.max(0, round4(j.stock + stockFor(it.name)));
+    qbToast(trKey('rateSaved'));
+    pingStockChange();                                   // the other phones refresh within a few seconds
+    scheduleSaveLocalOnly();
+  }catch(err){
+    it.rate = before.rate; it.stock = before.stock;
+    qbToast(trKey('rateSaveFail'));
+  }
+  rateSaving.delete(idx);
+  refreshRateRow(idx); renderBill(); renderFavStrip();
+  return true;
+}
+(function(){
+  const tbody = document.getElementById('rateTable');
+  tbody.addEventListener('click', e=>{
+    const lock = e.target.closest('.lock-icon');
+    if(lock){
+      const i = parseInt(lock.dataset.idx);
+      if(i === rateEditIdx) commitRateEdit(); else startRateEdit(i);
+      return;
+    }
+    const star = e.target.closest('.star-btn');
+    if(star){
+      const i = parseInt(star.dataset.idx);
+      items[i].favorite = !items[i].favorite;
+      renderRates();
+      renderFavStrip();
+      scheduleSave();
+      return;
+    }
+    const add = e.target.closest('.quickAddBtn');
+    if(add && !add.disabled) addToBill(parseInt(add.dataset.idx));
+  });
+  tbody.addEventListener('keydown', e=>{
+    if(!e.target.matches || !e.target.matches('.rate-edit, .stock-edit')) return;
+    if(e.key === 'Enter'){ e.preventDefault(); commitRateEdit(); }
+    else if(e.key === 'Escape'){ e.preventDefault(); cancelRateEdit(); }
+  });
+  tbody.addEventListener('input', e=>{ if(e.target.matches && e.target.matches('.rate-edit, .stock-edit')){ e.target.classList.remove('bad'); restartRateEditTimer(); } });
+  // tapping anywhere outside the open row saves it and locks it
+  tbody.addEventListener('focusout', ()=>{
+    if(rateEditIdx === -1) return;
+    const row = rateRowEls[rateEditIdx];
+    setTimeout(()=>{
+      if(rateEditIdx === -1) return;
+      if(row && row.contains(document.activeElement)) return;
+      commitRateEdit();
+    }, 150);
+  });
+})();
 
 // the amount of one bill line: normally quantity x rate, but when the shopkeeper typed the rupees
 // (for loose items, "10 rs ka soda") that exact amount is kept, so rounding never changes it
@@ -4133,6 +4272,7 @@ function smsMessage(data, cfg){
     root.classList.toggle('is-offline', !v);
     lockApp(!v);
     if(!v){
+      try{ cancelRateEdit(); }catch(e){}
       try{ if(window.closeBarcodeScanner) window.closeBarcodeScanner(); if(window.closeShareModal) window.closeShareModal(); }catch(e){}
     } else {
       document.getElementById('offStatus').textContent = '';
